@@ -58,8 +58,8 @@ export default function ProfileScreen(_props: Props) {
     const fetchSettings = async () => {
       try {
         const response = await settingsApi.get();
-        setPushNotif(response.data.push_enabled);
-        setMotionNotif(response.data.motion_notifications);
+        setPushNotif(response.push_enabled);
+        setMotionNotif(response.motion_notifications);
       } catch (e) {
         console.warn('Gagal memuat settings', e);
       } finally {
@@ -95,9 +95,10 @@ export default function ProfileScreen(_props: Props) {
       // Enable biometric
       const success = await enableBiometricLogin();
       if (!success) {
+        const reason = (await import('../../utils/biometric')).isBiometricAvailable ? '' : '';
         Alert.alert(
           'Gagal',
-          `Tidak dapat mengaktifkan ${biometricType}. Pastikan Anda sudah login.`,
+          `Tidak dapat mengaktifkan ${biometricType}. Pastikan biometric sudah terdaftar di perangkat Anda.`,
         );
         return;
       }
@@ -149,13 +150,13 @@ export default function ProfileScreen(_props: Props) {
     }
     setEditSaving(true);
     try {
-      const response = await meApi.update({ full_name: name });
+      const customer = await meApi.update({ full_name: name });
       // Convert Customer to legacy User format for updateUser
       const legacyUser = {
-        id: response.data.id,
-        name: response.data.full_name,
-        email: response.data.email,
-        role: response.data.status,
+        id: customer.id,
+        name: customer.full_name,
+        email: customer.email,
+        role: customer.status,
       };
       await updateUser(legacyUser);
       setEditOpen(false);

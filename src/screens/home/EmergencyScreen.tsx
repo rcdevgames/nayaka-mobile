@@ -67,9 +67,9 @@ export default function EmergencyScreen({ navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const response = await emergencyApi.list();
+      const contacts = await emergencyApi.list();
       // Filter only active contacts
-      const activeContacts = response.data.filter(c => c.is_active);
+      const activeContacts = contacts.filter(c => c.is_active);
       setContacts(activeContacts);
     } catch (e) {
       setError((e as Error).message ?? 'Gagal memuat kontak darurat');

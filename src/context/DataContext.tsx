@@ -36,10 +36,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         camerasApi.list({ limit: 50 }),
         alertsApi.list({ limit: 50 }),
       ]);
-      setCameras(camRes.data);
-      setAlerts(alertRes.data);
-      // Count unread alerts
-      setUnreadCount(alertRes.data.filter(a => !a.read).length);
+      setCameras(Array.isArray(camRes) ? camRes : []);
+      setAlerts(Array.isArray(alertRes) ? alertRes : []);
+      setUnreadCount(Array.isArray(alertRes) ? alertRes.filter(a => !a.read).length : 0);
     } catch (e) {
       console.warn('Gagal memuat data dashboard', e);
     } finally {

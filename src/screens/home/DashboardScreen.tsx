@@ -39,13 +39,12 @@ export default function DashboardScreen({ navigation }: Props) {
       let active = true;
       dashboardApi
         .get()
-        .then(res => {
+        .then(d => {
           if (active) {
-            const d = res;
-            setTotalCameras(d.data.total_cameras ?? cameras.length);
-            setActiveCameras(d.data.active_cameras ?? 0);
-            setRecordingCount(d.data.recording_cameras ?? 0);
-            setAlertUnread(d.data.alert_unread ?? 0);
+            setTotalCameras(d.total_cameras ?? cameras.length);
+            setActiveCameras(d.active_cameras ?? 0);
+            setRecordingCount(d.recording_cameras ?? 0);
+            setAlertUnread(d.alert_unread ?? 0);
           }
         })
         .catch(e => console.warn('Gagal memuat statistik', e));

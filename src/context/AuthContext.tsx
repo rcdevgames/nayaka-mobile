@@ -114,8 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setAuthToken(storedToken);
             // Validate token by fetching /me
             try {
-              const meRes = await meApi.get();
-              const u = customerToUser(meRes.data);
+              const customer = await meApi.get();
+              const u = customerToUser(customer);
               setUser(u);
               await AsyncStorage.setItem(
                 STORAGE_KEY,
@@ -191,8 +191,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Set token and validate
       setAuthToken(token);
-      const meRes = await meApi.get();
-      const u = customerToUser(meRes.data);
+      const customer = await meApi.get();
+      const u = customerToUser(customer);
 
       await setStoredToken(token);
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user: u }));

@@ -102,6 +102,15 @@ interface ApiErrorResponse {
 
 export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   const { method = 'GET', body, authenticated = true } = opts;
+  const { data } = await request(path, { method, body, authenticated });
+  return data as T;
+}
+
+export async function request(
+  path: string,
+  opts: ApiOptions = {},
+): Promise<{ data: unknown; meta: Record<string, unknown> }> {
+  const { method = 'GET', body, authenticated = true } = opts;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authenticated && authToken) {
@@ -120,7 +129,6 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   }
 
   // Parse response
-  let parsed: ApiResponse<unknown> | ApiErrorResponse | null = null;
   let rawData: Record<string, unknown> = {};
 
   try {
@@ -131,7 +139,6 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
       const status = err.error.code === 'TOKEN_EXPIRED' || err.error.code === 'TOKEN_REVOKED' ? 401 : res.status;
       throw new ApiError(status, err.error.code, getErrorMessage(err.error.code, err.error.message));
     }
-    parsed = rawData as unknown as ApiResponse<T>;
   } catch (e) {
     if (e instanceof ApiError) throw e;
     // Non-JSON response or parse error
@@ -144,12 +151,38 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
     throw new ApiError(res.status, 'UNKNOWN_ERROR', getErrorMessage('UNKNOWN_ERROR', `Gagal (${res.status})`));
   }
 
-  // Return the data portion of the envelope
-  if (parsed && 'data' in parsed) {
-    return parsed.data as T;
+  // Unwrap the envelope { data, meta } when present
+  if ('data' in rawData && Object.keys(rawData).every(key => key === 'data' || key === 'meta')) {
+    const wrapped = rawData as unknown as ApiResponse<unknown>;
+    return {
+      data: wrapped.data,
+      meta: (wrapped.meta ?? {}) as unknown as Record<string, unknown>,
+    };
   }
 
-  return rawData as T;
+  return { data: rawData, meta: {} };
+}
+
+// Some list endpoints nest their collection (e.g. {articles: [], pagination}), others return
+// a bare array. Callers only need the collection, so pick whichever key holds an array.
+function unwrapApiData<T>(value: T): T {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  if ('data' in record && Object.keys(record).every(key => key === 'data' || key === 'meta')) {
+    return record.data as T;
+  }
+  return value;
+}
+
+// Kept out of the generic unwrap: only list callers need the collection pulled out of its wrapper.
+function unwrapList<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      if (Array.isArray(item)) return item as T[];
+    }
+  }
+  return [];
 }
 
 // ── Customer Types ───────────────────────────────────────────────────────
@@ -255,11 +288,15 @@ export const authApi = {
 
 // ── Me / Profile API ─────────────────────────────────────────────────────
 export const meApi = {
-  get: () => api<{ data: Customer; meta: { request_id: string } }>('/mobile/me'),
+  get: async () => {
+    const { data } = await request('/mobile/me');
+    const profile = (data as { profile?: Customer }).profile;
+    return profile ?? (data as Customer);
+  },
   update: (params: { full_name?: string; avatar_url?: string }) =>
-    api<{ data: Customer; meta: { request_id: string } }>('/mobile/me', {
-      method: 'PATCH',
-      body: params,
+    request('/mobile/me', { method: 'PATCH', body: params }).then(({ data }) => {
+      const profile = (data as { profile?: Customer }).profile;
+      return profile ?? (data as Customer);
     }),
 };
 
@@ -289,7 +326,29 @@ export interface DashboardStats {
 }
 
 export const dashboardApi = {
-  get: () => api<{ data: DashboardStats; meta: { request_id: string } }>('/mobile/dashboard'),
+  get: async () => {
+    const { data } = await request('/mobile/dashboard');
+    const summary = data as {
+      camera_summary?: {
+        total_count?: number;
+        active_count?: number;
+        recording_count?: number;
+        offline_count?: number;
+        unknown_count?: number;
+      };
+      alert_summary?: { unread_count?: number };
+    };
+    return {
+      total_cameras: summary.camera_summary?.total_count ?? 0,
+      active_cameras: summary.camera_summary?.active_count ?? 0,
+      recording_cameras: summary.camera_summary?.recording_count ?? 0,
+      offline_cameras: summary.camera_summary?.offline_count ?? 0,
+      unknown_cameras: summary.camera_summary?.unknown_count ?? 0,
+      alert_unread: summary.alert_summary?.unread_count ?? 0,
+      recent_active_cameras: [],
+      recent_alerts: [],
+    } satisfies DashboardStats;
+  },
 };
 
 // ── Camera API ──────────────────────────────────────────────────────────
@@ -325,13 +384,9 @@ export const camerasApi = {
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.cursor) q.set('cursor', params.cursor);
     const qs = q.toString();
-    return api<{
-      data: Camera[];
-      meta: {
-        request_id: string;
-        pagination?: { cursor: string; has_more: boolean };
-      };
-    }>(`/mobile/cameras${qs ? `?${qs}` : ''}`);
+    return request(`/mobile/cameras${qs ? `?${qs}` : ''}`).then(({ data }) =>
+      unwrapList<Camera>(data),
+    );
   },
 
   get: (id: string) =>
@@ -448,13 +503,9 @@ export const alertsApi = {
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.cursor) q.set('cursor', params.cursor);
     const qs = q.toString();
-    return api<{
-      data: Alert[];
-      meta: {
-        request_id: string;
-        pagination?: { cursor: string; has_more: boolean };
-      };
-    }>(`/mobile/alerts${qs ? `?${qs}` : ''}`);
+    return request(`/mobile/alerts${qs ? `?${qs}` : ''}`).then(({ data }) =>
+      unwrapList<Alert>(data),
+    );
   },
 
   get: (id: string) =>
@@ -622,10 +673,7 @@ export interface EmergencyContact {
 }
 
 export const emergencyApi = {
-  list: () =>
-    api<{ data: EmergencyContact[]; meta: { request_id: string } }>(
-      '/mobile/emergency-contacts',
-    ),
+  list: () => request('/mobile/emergency-contacts').then(({ data }) => unwrapList<EmergencyContact>(data)),
 };
 
 // ── Settings ─────────────────────────────────────────────────────────────
@@ -636,16 +684,21 @@ export interface CustomerSettings {
 }
 
 export const settingsApi = {
-  get: () =>
-    api<{ data: CustomerSettings; meta: { request_id: string } }>(
-      '/mobile/me/settings',
-    ),
+  get: async () => {
+    const { data } = await request('/mobile/me/settings');
+    const settings = data as {
+      notifications?: { enabled?: boolean };
+      alerts?: { enabled?: boolean };
+    };
+    return {
+      push_enabled: settings.notifications?.enabled ?? false,
+      motion_notifications: settings.alerts?.enabled ?? false,
+      biometric_enabled: false,
+    } satisfies CustomerSettings;
+  },
 
   update: (settings: Partial<CustomerSettings>) =>
-    api<{ data: CustomerSettings; meta: { request_id: string } }>(
-      '/mobile/me/settings',
-      { method: 'PATCH', body: settings },
-    ),
+    request('/mobile/me/settings', { method: 'PATCH', body: settings }).then(({ data }) => data as CustomerSettings),
 
   registerPushToken: (installationId: string, token: string, platform: string) =>
     api<{ data: { installation_id: string }; meta: { request_id: string } }>(

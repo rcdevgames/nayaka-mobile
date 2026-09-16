@@ -9,17 +9,27 @@ const BIOMETRIC_SERVICE = 'nayaka_cctv_biometric';
 const BIOMETRIC_USERNAME = 'biometric_token';
 
 // Store token with biometric protection
-export async function enableBiometric(token: string): Promise<boolean> {
+export async function enableBiometric(token: string): Promise<{ ok: boolean; reason?: string }> {
   try {
     await Keychain.setGenericPassword(BIOMETRIC_USERNAME, token, {
       service: BIOMETRIC_SERVICE,
       accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE,
       accessible: Keychain.ACCESSIBLE.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
     });
-    return true;
-  } catch (error) {
-    console.error('Failed to enable biometric:', error);
-    return false;
+    return { ok: true };
+  } catch (error: unknown) {
+    const err = error as { message?: string; code?: string };
+    let reason = 'Tidak dapat mengaktifkan biometrik.';
+    // BIOMETRIC_HARDWARE_UNAVAILABLE / STATUS_NO_HARDWARE
+    if (err.code === 'BIOMETRIC_HARDWARE_UNAVAILABLE' || err.code === 'NO_HARDWARE') {
+      reason = 'Perangkat ini tidak mendukung biometrik.';
+    } else if (err.code === 'BIOMETRIC_NOT_ENROLLED' || err.code === 'NONE_ENROLLED') {
+      reason = 'Tidak ada sidik jari/Face ID yang terdaftar di perangkat.';
+    } else if (err.message) {
+      reason = err.message;
+    }
+    console.warn('enableBiometric failed:', err.code, err.message);
+    return { ok: false, reason };
   }
 }
 
@@ -62,7 +72,7 @@ export async function isBiometricAvailable(): Promise<boolean> {
     const biometryType = await Keychain.getSupportedBiometryType();
     return biometryType !== null;
   } catch (error) {
-    console.error('Failed to check biometric availability:', error);
+    console.warn('isBiometricAvailable failed:', error);
     return false;
   }
 }
@@ -94,6 +104,7 @@ export async function isBiometricEnabled(): Promise<boolean> {
     const credentials = await Keychain.getGenericPassword({
       service: BIOMETRIC_SERVICE,
     });
+    // getGenericPassword returns false when no credentials exist, or an object when found
     return credentials !== false;
   } catch (error) {
     return false;
