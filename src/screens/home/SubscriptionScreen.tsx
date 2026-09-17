@@ -1,314 +1,278 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  Modal,
   ActivityIndicator,
-  Alert,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Colors, Spacing } from '../../theme';
+import { Colors } from '../../theme';
 import { subscriptionStyles as styles } from '../../theme/styles';
 import { Icon } from '../../components/Icon';
-import { subscriptionsApi } from '../../api';
+import { subscriptionsApi, type RawSubscription } from '../../api';
 import { formatIDR } from '../../utils/format';
-import type {
-  PaymentMethod,
-  Subscription,
-  SubscriptionPlan,
-} from '../../types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Subscription'>;
 
-const METHODS: { key: PaymentMethod; label: string; icon: string }[] = [
-  { key: 'qris', label: 'QRIS', icon: 'qr-code' },
-  { key: 'transfer', label: 'Transfer Bank', icon: 'account-balance' },
-  { key: 'va', label: 'Virtual Account', icon: 'confirmation-number' },
-  { key: 'card', label: 'Kartu Kredit/Debit', icon: 'credit-card' },
-];
+const DAY_MS = 864e5;
 
-const STATUS_META: Record<
-  Subscription['status'],
-  { label: string; color: string }
-> = {
-  active: { label: 'Aktif', color: Colors.success },
-  pending: { label: 'Menunggu', color: Colors.warning },
-  expired: { label: 'Berakhir', color: Colors.textMuted },
+/** Field di dalam `subscription` belum terdokumentasi, jadi tiap nilai dibaca dari beberapa nama. */
+const pick = (s: RawSubscription, keys: string[]): unknown => {
+  for (const k of keys) {
+    const v = s[k];
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
 };
 
-const fmtDate = (iso: string | null) =>
-  iso
-    ? new Date(iso).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      })
-    : '—';
+const pickString = (s: RawSubscription, keys: string[]): string | null => {
+  const v = pick(s, keys);
+  return typeof v === 'string' ? v : null;
+};
+
+const pickNumber = (s: RawSubscription, keys: string[]): number | null => {
+  const v = pick(s, keys);
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+};
+
+const STATUS_TEXT: Record<string, string> = {
+  active: 'Aktif',
+  pending: 'Menunggu pembayaran',
+  suspended: 'Ditangguhkan',
+  expired: 'Berakhir',
+  cancelled: 'Dibatalkan',
+};
+
+const STATUS_TINT: Record<string, string> = {
+  active: Colors.success,
+  pending: Colors.warning,
+  suspended: Colors.warning,
+  expired: Colors.textMuted,
+  cancelled: Colors.danger,
+};
+
+const fmtDate = (iso: string | null) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
+/** Sisa hari dari tanggal berakhir, dihitung lokal agar tidak bergantung field back end. */
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const end = new Date(iso).getTime();
+  if (Number.isNaN(end)) return null;
+  return Math.max(0, Math.ceil((end - Date.now()) / DAY_MS));
+}
 
 export default function SubscriptionScreen({ navigation }: Props) {
-  const [active, setActive] = useState<Subscription | null>(null);
-  const [history, setHistory] = useState<Subscription[]>([]);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [sub, setSub] = useState<RawSubscription | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const [picked, setPicked] = useState<SubscriptionPlan | null>(null);
-  const [method, setMethod] = useState<PaymentMethod>('qris');
-  const [paying, setPaying] = useState(false);
+  const aliveRef = useRef(true);
+  useEffect(
+    () => () => {
+      aliveRef.current = false;
+    },
+    [],
+  );
 
-  const load = useCallback(() => {
-    let alive = true;
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     setError('');
-    Promise.all([subscriptionsApi.list(), subscriptionsApi.plans()])
-      .then(([subs, plansData]) => {
-        if (!alive) return;
-        setActive(subs.data.active);
-        setHistory(subs.data.subscriptions);
-        setPlans(plansData.data);
-      })
-      .catch(e => alive && setError((e as Error).message))
-      .finally(() => alive && setLoading(false));
-    return () => {
-      alive = false;
-    };
+    try {
+      const data = await subscriptionsApi.current();
+      if (!aliveRef.current) return;
+      setSub(data);
+    } catch (e) {
+      if (aliveRef.current) {
+        setError((e as Error).message || 'Gagal memuat data langganan.');
+      }
+    } finally {
+      if (aliveRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
   }, []);
 
-  useFocusEffect(load);
-
-  const confirmPay = async () => {
-    if (!picked) return;
-    setPaying(true);
-    try {
-      const res = await subscriptionsApi.subscribe(picked.id, method);
-      const subData = res.data;
-      setActive(subData.active);
-      setHistory(subData.subscriptions);
-      setPicked(null);
-      Alert.alert(
-        'Berhasil',
-        `Langganan ${picked.name} aktif sampai ${fmtDate(subData.active?.ends_at ?? null)}.`,
-      );
-    } catch (e) {
-      Alert.alert('Gagal', (e as Error).message ?? 'Pembelian gagal.');
-    } finally {
-      setPaying(false);
-    }
-  };
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   if (loading)
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <View style={styles.empty}>
+        <View style={styles.centered}>
           <ActivityIndicator color={Colors.primary} />
+          <Text style={styles.centeredText}>Memuat data langganan...</Text>
         </View>
       </SafeAreaView>
     );
+
+  const planName = sub
+    ? pickString(sub, ['plan_name', 'planName', 'plan', 'name'])
+    : null;
+  const price = sub
+    ? pickNumber(sub, ['plan_price', 'planPrice', 'price', 'amount'])
+    : null;
+  const statusRaw = sub ? pickString(sub, ['status']) : null;
+  const status = statusRaw?.toLowerCase() ?? null;
+  const startsRaw = sub
+    ? pickString(sub, [
+        'starts_at',
+        'startsAt',
+        'start_date',
+        'activated_at',
+      ])
+    : null;
+  const endsRaw = sub
+    ? pickString(sub, [
+        'ends_at',
+        'endsAt',
+        'end_date',
+        'expires_at',
+        'expired_at',
+      ])
+    : null;
+  const startsAt = fmtDate(startsRaw);
+  const endsAt = fmtDate(endsRaw);
+  const left = daysUntil(endsRaw);
+  const tint = status
+    ? STATUS_TINT[status] ?? Colors.textMuted
+    : Colors.textMuted;
+  const statusText = status
+    ? STATUS_TEXT[status] ?? statusRaw ?? '-'
+    : 'Tidak diketahui';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => load(true)}
+            colors={[Colors.primary]}
+            tintColor={Colors.primary}
+          />
+        }
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={10}>
             <Icon name="arrow-back" size={22} color={Colors.text} />
           </TouchableOpacity>
-          <Text style={[styles.title, { marginLeft: 10 }]}>Langganan</Text>
+          <Text style={styles.title}>Langganan</Text>
         </View>
-        <Text style={styles.subtitle}>Kelola paket monitoring Anda</Text>
 
         {error ? (
-          <View style={styles.emptyActive}>
-            <Text style={styles.emptyActiveTitle}>Gagal memuat</Text>
-            <Text style={styles.emptyActiveSub}>{error}</Text>
+          <View style={styles.errorCard}>
+            <Icon name="error-outline" size={18} color={Colors.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity onPress={() => load()} hitSlop={8}>
+              <Text style={styles.errorAction}>Coba lagi</Text>
+            </TouchableOpacity>
           </View>
-        ) : active ? (
-          <View style={styles.activeCard}>
-            <View style={styles.activeTop}>
-              <Text style={styles.activeLabel}>Langganan Aktif</Text>
-              <View style={styles.pill}>
-                <Text style={styles.pillText}>
-                  {active.days_left != null ? `${active.days_left} hari lagi` : 'Aktif'}
-                </Text>
-              </View>
+        ) : sub ? (
+          <>
+            <View style={styles.statusRow}>
+              <View style={[styles.statusDot, { backgroundColor: tint }]} />
+              <Text style={[styles.statusText, { color: tint }]}> {statusText}</Text>
             </View>
-            <Text style={styles.activePlan}>{active.plan_name}</Text>
-            <Text style={styles.activeMeta}>
-              {formatIDR(active.plan_price)} / bulan
-            </Text>
-            <Text style={styles.activePeriod}>
-              {fmtDate(active.starts_at)} → {fmtDate(active.ends_at)}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.emptyActive}>
-            <Text style={styles.emptyActiveTitle}>Belum berlangganan</Text>
-            <Text style={styles.emptyActiveSub}>
-              Pilih paket di bawah untuk mengaktifkan monitoring.
-            </Text>
-          </View>
-        )}
 
-        <Text style={[styles.sectionTitle, { marginTop: Spacing.md }]}>Paket tersedia</Text>
-        {plans.map(p => {
-          const current = active?.plan_id === p.id && active.status === 'active';
-          return (
-            <View
-              key={p.id}
-              style={[styles.planCard, current && styles.planCurrent]}
-            >
-              <View style={styles.planHeader}>
-                <Text style={styles.planName}>{p.name}</Text>
-                {current && (
-                  <View style={styles.planTag}>
-                    <Text style={styles.planTagText}>PAKET ANDA</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.planPrice}>
-                {formatIDR(p.price)}
-                <Text style={{ fontSize: 12, color: Colors.textMuted }}>
-                  {' '}
-                  / bulan
-                </Text>
+            <View style={styles.activeCard}>
+              <Text style={styles.activeLabel}>Langganan Anda</Text>
+              <Text style={styles.activePlan}>
+                {planName ?? 'Paket tidak diketahui'}
               </Text>
-              <Text style={styles.planDesc}>{p.description || '—'}</Text>
-              <View style={styles.planSpecs}>
-                <View style={styles.planSpec}>
-                  <Icon name="videocam" size={14} color={Colors.primary} />
-                  <Text style={styles.planSpecText}>{p.cameras} kamera</Text>
-                </View>
-                <View style={styles.planSpec}>
-                  <Icon name="cloud-upload" size={14} color={Colors.primary} />
-                  <Text style={styles.planSpecText}>{p.storage_days} hari</Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={[styles.planBtn, current && styles.planBtnDisabled]}
-                disabled={current}
-                onPress={() => {
-                  setMethod('qris');
-                  setPicked(p);
-                }}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.planBtnText,
-                    current && styles.planBtnTextDisabled,
-                  ]}
-                >
-                  {current ? 'Sedang aktif' : active ? 'Ganti ke paket ini' : 'Langganan sekarang'}
+              {price != null ? (
+                <Text style={styles.activeMeta}>
+                  {formatIDR(price)} per bulan
                 </Text>
-              </TouchableOpacity>
-            </View>
-          );
-        })}
+              ) : null}
 
-        <Text style={[styles.sectionTitle, { marginTop: Spacing.md }]}>
-          Riwayat langganan
-        </Text>
-        {history.length === 0 ? (
-          <View style={styles.empty}>
-            <Icon name="receipt-long" size={40} color={Colors.textMuted} />
-            <Text style={styles.emptyText}>Belum ada riwayat</Text>
-          </View>
-        ) : (
-          history.map(s => {
-            const meta = STATUS_META[s.status];
-            return (
-              <View key={s.id} style={styles.historyRow}>
-                <View style={styles.historyInfo}>
-                  <Text style={styles.historyPlan}>{s.plan_name}</Text>
-                  <Text style={styles.historyDate}>
-                    {fmtDate(s.starts_at)} → {fmtDate(s.ends_at)}
-                  </Text>
-                  <View
-                    style={[
-                      styles.statusTag,
-                      { backgroundColor: `${meta.color}1F` },
-                    ]}
-                  >
-                    <Text style={[styles.statusTagText, { color: meta.color }]}>
-                      {meta.label}
+              {endsRaw ? (
+                <>
+                  {/* Meter hanya indikator kasar sisa masa aktif, bukan data terukur. */}
+                  <View style={styles.meterTrack}>
+                    <View
+                      style={[
+                        styles.meterFill,
+                        {
+                          width: `${
+                            left != null && left <= 30
+                              ? Math.max(6, Math.round((left / 30) * 100))
+                              : 100
+                          }%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.activePeriod}>
+                    <Text style={styles.activePeriodText}>
+                      {left != null ? `Sisa ${left} hari` : 'Masa aktif berjalan'}
+                    </Text>
+                    <Text style={styles.activePeriodText}>
+                      Berakhir {endsAt ?? '-'}
                     </Text>
                   </View>
-                </View>
-                <Text style={styles.historyAmount}>{formatIDR(s.plan_price)}</Text>
+                </>
+              ) : null}
+            </View>
+
+            <Text style={styles.sectionTitle}>Rincian</Text>
+            <View style={styles.detailCard}>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Status</Text>
+                <Text style={[styles.detailValue, { color: tint }]}> {statusText}</Text>
               </View>
-            );
-          })
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Mulai</Text>
+                <Text style={styles.detailValue}>{startsAt ?? '-'}</Text>
+              </View>
+              <View style={[styles.detailRow, styles.detailRowLast]}>
+                <Text style={styles.detailLabel}>Berakhir</Text>
+                <Text style={styles.detailValue}>{endsAt ?? '-'}</Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          <View style={styles.emptyActive}>
+            <Text style={styles.emptyActiveTitle}>Belum ada langganan</Text>
+            <Text style={styles.emptyActiveSub}>
+              Akun ini belum terhubung ke langganan mana pun. Hubungi tim Nayaka
+              untuk mengaktifkan paket.
+            </Text>
+            <TouchableOpacity
+              style={styles.emptyAction}
+              onPress={() => navigation.navigate('Help', {})}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.emptyActionText}>Buka Pusat Bantuan</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </ScrollView>
-
-      {/* Modal pembayaran */}
-      <Modal
-        visible={!!picked}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          if (!paying) setPicked(null);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Bayar {picked?.name}</Text>
-            <Text style={styles.modalSub}>
-              {formatIDR(picked?.price ?? 0)} · 1 bulan
-            </Text>
-            <View style={styles.methodList}>
-              {METHODS.map(m => {
-                const on = method === m.key;
-                return (
-                  <TouchableOpacity
-                    key={m.key}
-                    style={[styles.methodRow, on && styles.methodActive]}
-                    onPress={() => setMethod(m.key)}
-                  >
-                    <Icon
-                      name={m.icon as any}
-                      size={20}
-                      color={on ? Colors.primary : Colors.textMuted}
-                    />
-                    <Text style={[styles.methodLabel, { marginLeft: 12 }]}>
-                      {m.label}
-                    </Text>
-                    {on && (
-                      <Icon name="check-circle" size={20} color={Colors.primary} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalCancel]}
-                onPress={() => setPicked(null)}
-                disabled={paying}
-              >
-                <Text style={styles.modalCancelText}>Batal</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalPrimary]}
-                onPress={confirmPay}
-                disabled={paying}
-              >
-                {paying ? (
-                  <ActivityIndicator color={Colors.white} />
-                ) : (
-                  <Text style={styles.modalPrimaryText}>Bayar</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }

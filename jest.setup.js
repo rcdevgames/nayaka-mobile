@@ -32,6 +32,36 @@ jest.mock('@react-native-google-signin/google-signin', () => {
   };
 });
 
+jest.mock('react-native-device-info', () => {
+  const { Platform } = require('react-native');
+  return {
+    __esModule: true,
+    getVersion: () => '1.0.0',
+    getBuildNumber: () => '1',
+    getSystemName: () => (Platform.OS === 'ios' ? 'iOS' : 'Android'),
+    getSystemVersion: () => '0',
+    getUniqueId: async () => 'test-device',
+    getDeviceId: () => 'test-device',
+    isEmulator: async () => true,
+  };
+});
+
+jest.mock('react-native-keychain', () => ({
+  __esModule: true,
+  ACCESS_CONTROL: { BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE: 'biometry' },
+  ACCESSIBLE: { WHEN_PASSCODE_SET_THIS_DEVICE_ONLY: 'passcode' },
+  BIOMETRY_TYPE: {
+    FACE_ID: 'FaceID',
+    TOUCH_ID: 'TouchID',
+    FINGERPRINT: 'Fingerprint',
+    IRIS: 'Iris',
+  },
+  setGenericPassword: jest.fn(async () => true),
+  getGenericPassword: jest.fn(async () => false),
+  resetGenericPassword: jest.fn(async () => true),
+  getSupportedBiometryType: jest.fn(async () => null),
+}));
+
 const mockStore = new Map();
 
 jest.mock('@react-native-async-storage/async-storage', () => ({

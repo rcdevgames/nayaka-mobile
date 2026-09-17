@@ -523,51 +523,23 @@ export const alertsApi = {
 };
 
 // ── Subscription API ────────────────────────────────────────────────────
-export type SubscriptionStatus = 'active' | 'expired' | 'pending';
-export type PaymentMethod = 'transfer' | 'qris' | 'va' | 'card';
-
-export interface SubscriptionPlan {
-  id: string;
-  name: string;
-  price: number;
-  cameras: number;
-  storage_days: number;
-  description: string;
-}
-
-export interface Subscription {
-  id: string;
-  customer_id: string;
-  plan_id: string;
-  plan_name: string;
-  plan_price: number;
-  status: SubscriptionStatus;
-  starts_at: string | null;
-  ends_at: string;
-  created_at: string;
-  days_left: number | null;
-}
+// Backend tidak punya endpoint langganan tersendiri (/mobile/subscriptions dan
+// /mobile/subscription-plans mengembalikan 404 HTML). Satu-satunya sumber adalah
+// field `subscription` pada GET /mobile/me, sesuai MOBILE_API_Contract bagian 8.
+//
+// ponytail: nama field di dalam `subscription` belum terverifikasi karena akun
+// yang tersedia mengembalikan null. Layar membaca beberapa varian nama sekaligus;
+// rapikan jadi tipe tetap begitu ada contoh respons berisi langganan.
+export type RawSubscription = Record<string, unknown>;
 
 export const subscriptionsApi = {
-  plans: () =>
-    api<{ data: SubscriptionPlan[]; meta: { request_id: string } }>(
-      '/mobile/subscription-plans',
-    ),
-
-  list: () =>
-    api<{
-      data: { subscriptions: Subscription[]; active: Subscription | null };
-      meta: { request_id: string };
-    }>('/mobile/subscriptions'),
-
-  subscribe: (planId: string, method: PaymentMethod) =>
-    api<{
-      data: { subscriptions: Subscription[]; active: Subscription | null };
-      meta: { request_id: string };
-    }>('/mobile/subscriptions', {
-      method: 'POST',
-      body: { plan_id: planId, payment_method: method },
-    }),
+  current: async (): Promise<RawSubscription | null> => {
+    const { data } = await request('/mobile/me');
+    const sub = (data as { subscription?: unknown }).subscription;
+    return sub && typeof sub === 'object' && !Array.isArray(sub)
+      ? (sub as RawSubscription)
+      : null;
+  },
 };
 
 // ── Snapshot API ────────────────────────────────────────────────────────
@@ -626,7 +598,7 @@ export interface LegalDocument {
 }
 
 export const helpApi = {
-  list: (params?: {
+  list: async (params?: {
     q?: string;
     category?: string;
     locale?: string;
@@ -640,17 +612,39 @@ export const helpApi = {
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.cursor) q.set('cursor', params.cursor);
     const qs = q.toString();
-    return api<{
-      data: HelpArticle[];
+    const response = await request(`/mobile/help${qs ? `?${qs}` : ''}`);
+    const payload = response.data as Record<string, unknown> | HelpArticle[];
+    const nestedPagination =
+      payload && !Array.isArray(payload) && typeof payload === 'object'
+        ? payload.pagination
+        : undefined;
+    const metaPagination = response.meta.pagination as
+      | { cursor?: unknown; has_more?: unknown }
+      | undefined;
+    const pagination = metaPagination ?? nestedPagination;
+
+    return {
+      data: unwrapList<HelpArticle>(response.data),
       meta: {
-        request_id: string;
-        pagination?: { cursor: string; has_more: boolean };
-      };
-    }>(`/mobile/help${qs ? `?${qs}` : ''}`);
+        ...response.meta,
+        pagination:
+          pagination && typeof pagination === 'object'
+            ? {
+                cursor:
+                  typeof (pagination as Record<string, unknown>).cursor === 'string'
+                    ? (pagination as Record<string, unknown>).cursor as string
+                    : undefined,
+                has_more: (pagination as Record<string, unknown>).has_more === true,
+              }
+            : undefined,
+      },
+    };
   },
 
-  get: (id: string) =>
-    api<{ data: HelpArticle; meta: { request_id: string } }>(`/mobile/help/${id}`),
+  get: async (id: string) => {
+    const response = await request(`/mobile/help/${id}`);
+    return { data: response.data as HelpArticle, meta: response.meta };
+  },
 
   terms: (params?: { locale?: string; version?: string }) => {
     const q = new URLSearchParams();

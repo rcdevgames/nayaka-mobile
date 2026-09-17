@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -28,11 +28,15 @@ export default function HelpScreen({ navigation, route }: Props) {
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
+  const mountedRef = useRef(true);
+  const fetchingRef = useRef(false);
 
   // If articleId provided, show detail view
   const articleId = route.params?.articleId;
 
   const fetchArticles = useCallback(async (reset = true) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -45,19 +49,29 @@ export default function HelpScreen({ navigation, route }: Props) {
       if (selectedCategory !== 'Semua') params.category = selectedCategory.toLowerCase();
 
       const response = await helpApi.list(params);
-      if (reset) {
-        setArticles(response.data);
-      } else {
-        setArticles(prev => [...prev, ...response.data]);
+      const nextArticles = Array.isArray(response.data) ? response.data : [];
+      if (mountedRef.current) {
+        if (reset) {
+          setArticles(nextArticles);
+        } else {
+          setArticles(prev => [...prev, ...nextArticles]);
+        }
+        setHasMore(response.meta.pagination?.has_more ?? false);
+        setCursor(response.meta.pagination?.cursor || undefined);
       }
-      setHasMore(response.meta.pagination?.has_more ?? false);
-      setCursor(response.meta.pagination?.cursor);
     } catch (e) {
-      setError((e as Error).message ?? 'Gagal memuat bantuan');
+      if (mountedRef.current) {
+        setError((e as Error).message ?? 'Gagal memuat bantuan');
+      }
     } finally {
-      setLoading(false);
+      fetchingRef.current = false;
+      if (mountedRef.current) setLoading(false);
     }
   }, [searchQuery, selectedCategory, cursor]);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
 
   useEffect(() => {
     fetchArticles();
@@ -205,16 +219,23 @@ function HelpDetailScreen({
   const [article, setArticle] = useState<HelpArticle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
 
   useEffect(() => {
     const load = async () => {
       try {
         const response = await helpApi.get(articleId);
-        setArticle(response.data);
+        if (mountedRef.current) setArticle(response.data);
       } catch (e) {
-        setError((e as Error).message ?? 'Gagal memuat artikel');
+        if (mountedRef.current) {
+          setError((e as Error).message ?? 'Gagal memuat artikel');
+        }
       } finally {
-        setLoading(false);
+        if (mountedRef.current) setLoading(false);
       }
     };
     load();

@@ -18,10 +18,32 @@ import { profileStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
 import { authApi, meApi, settingsApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
+import {
+  getVersion,
+  getBuildNumber,
+  getSystemName,
+  getSystemVersion,
+} from 'react-native-device-info';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Settings'>;
+
+/** device-info perlu Android/iOS asli; di test atau web selalu jatuh ke fallback. */
+function safeDevice<T>(read: () => T, fallback: T): T {
+  try {
+    return read() ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const APP_VERSION = safeDevice(getVersion, '1.0.0');
+const APP_BUILD = safeDevice(getBuildNumber, '-');
+const DEVICE_OS = `${safeDevice(getSystemName, 'Perangkat')} ${safeDevice(
+  getSystemVersion,
+  '',
+)}`.trim();
 
 export default function ProfileScreen(_props: Props) {
   const {
@@ -52,6 +74,9 @@ export default function ProfileScreen(_props: Props) {
   const [confirmPass, setConfirmPass] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [passSaving, setPassSaving] = useState(false);
+
+  // Tentang Aplikasi
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   // Fetch settings on mount
   useEffect(() => {
@@ -95,7 +120,6 @@ export default function ProfileScreen(_props: Props) {
       // Enable biometric
       const success = await enableBiometricLogin();
       if (!success) {
-        const reason = (await import('../../utils/biometric')).isBiometricAvailable ? '' : '';
         Alert.alert(
           'Gagal',
           `Tidak dapat mengaktifkan ${biometricType}. Pastikan biometric sudah terdaftar di perangkat Anda.`,
@@ -227,12 +251,6 @@ export default function ProfileScreen(_props: Props) {
           <MenuItem icon="edit" label="Edit Profil" onPress={openEdit} />
         </Group>
 
-        <Group title="Umum">
-          <MenuItem icon="badge" label="Kartu Identitas / Lisensi" />
-          <Divider />
-          <MenuItem icon="notifications-none" label="Preferensi Notifikasi" />
-        </Group>
-
         <Group title="Keamanan">
           <MenuSwitch
             icon="push-pin"
@@ -275,7 +293,12 @@ export default function ProfileScreen(_props: Props) {
             onPress={() => _props.navigation.navigate('Terms')}
           />
           <Divider />
-          <MenuItem icon="info-outline" label="Tentang Aplikasi" value="v1.0.0" />
+          <MenuItem
+            icon="info-outline"
+            label="Tentang Aplikasi"
+            value={`v${APP_VERSION}`}
+            onPress={() => setAboutOpen(true)}
+          />
         </Group>
 
         <TouchableOpacity
@@ -286,8 +309,6 @@ export default function ProfileScreen(_props: Props) {
           <Icon name="logout" size={20} color={Colors.danger} />
           <Text style={styles.logoutText}>Keluar Akun</Text>
         </TouchableOpacity>
-
-        <Text style={styles.version}>Nayaka CCTV · v1.0.0</Text>
       </ScrollView>
 
       {/* Modal Edit Profil */}
@@ -406,6 +427,78 @@ export default function ProfileScreen(_props: Props) {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Modal Tentang Aplikasi */}
+      <Modal
+        visible={aboutOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAboutOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Tentang Aplikasi</Text>
+
+            <View style={styles.aboutHead}>
+              <View style={styles.aboutLogo}>
+                <Icon name="videocam" size={26} color={Colors.white} />
+              </View>
+              <View style={styles.aboutHeadText}>
+                <Text style={styles.aboutName}>Nayaka CCTV</Text>
+                <Text style={styles.aboutVersion}>
+                  Versi {APP_VERSION} (build {APP_BUILD})
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.aboutPurpose}>
+              Memantau kamera, rekaman, dan notifikasi gerakan dari lokasi Anda.
+            </Text>
+
+            <View style={styles.aboutRow}>
+              <Text style={styles.aboutRowLabel}>Perangkat</Text>
+              <Text style={styles.aboutRowValue}>{DEVICE_OS || '-'}</Text>
+            </View>
+            <View style={styles.aboutRow}>
+              <Text style={styles.aboutRowLabel}>Akun</Text>
+              <Text style={styles.aboutRowValue} numberOfLines={1}>
+                {user?.email ?? '-'}
+              </Text>
+            </View>
+
+            <View style={styles.aboutLinks}>
+              <TouchableOpacity
+                style={styles.aboutLink}
+                onPress={() => {
+                  setAboutOpen(false);
+                  _props.navigation.navigate('Help', {});
+                }}
+              >
+                <Icon name="help-outline" size={18} color={Colors.primary} />
+                <Text style={styles.aboutLinkText}>Pusat Bantuan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.aboutLink}
+                onPress={() => {
+                  setAboutOpen(false);
+                  _props.navigation.navigate('Terms');
+                }}
+              >
+                <Icon name="article" size={18} color={Colors.primary} />
+                <Text style={styles.aboutLinkText}>Syarat & Ketentuan</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.modalBtn, styles.modalPrimary, styles.aboutClose]}
+              onPress={() => setAboutOpen(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modalPrimaryText}>Tutup</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
