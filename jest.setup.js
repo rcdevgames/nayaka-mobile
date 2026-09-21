@@ -1,6 +1,12 @@
 /* eslint-env jest */
 
 // Mock native modules not available in jest.
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return { __esModule: true, WebView: (props) => <View testID="webview" {...props} /> };
+});
+
 jest.mock('@react-native-vector-icons/material-icons', () => {
   const React = require('react');
   const { Text } = require('react-native');
