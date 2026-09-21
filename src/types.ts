@@ -23,9 +23,16 @@ export type CameraType = 'indoor' | 'outdoor' | 'ptz' | 'doorbell';
 export interface Camera {
   id: string;
   name: string;
+  serial_number: string;
+  model: string;
   location: string;
   ip: string;
   status: CameraStatus;
+  recording_status: string;
+  thumbnail_url: string;
+  stream_url: string;
+  thumbnail_expires_at: string | null;
+  last_seen_at: string | null;
   type: CameraType;
   resolution: string;
   fov: number;
