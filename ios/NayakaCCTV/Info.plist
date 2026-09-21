@@ -33,6 +33,19 @@
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- iOS 17+ tidak lagi mengizinkan koneksi ke alamat IP secara default,
+		     termasuk IP publik seperti host stream MJPEG ini. Cakupan dibatasi ke
+		     host stream saja, bukan seluruh app. -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>110.232.92.134</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+			</dict>
+		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
