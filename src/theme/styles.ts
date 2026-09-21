@@ -75,6 +75,11 @@ export const cameraThumbnailStyles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
     fontSize: 11,
   },
+  stillImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+  },
   offlineText: {
     color: Colors.textMuted,
     fontSize: 12,

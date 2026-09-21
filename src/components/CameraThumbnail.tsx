@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, type StyleProp, type ViewStyle } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Image, type StyleProp, type ViewStyle } from 'react-native';
 import { Colors } from '../theme';
 import { cameraThumbnailStyles as styles } from '../theme/styles';
 import { Icon } from './Icon';
@@ -13,13 +13,25 @@ interface CameraThumbnailProps {
 }
 
 /**
- * Placeholder video: gunakan <Image source={{ uri: streamURL }} /> atau
- * player HLS (react-native-video) saat stream asli tersedia.
- * ponytail: renderer stream nyata; ganti saat backend CCTV disediakan.
+ * Daftar kamera tidak bisa memutar MJPEG: <Image> RN tidak memahami
+ * multipart/x-mixed-replace, dan satu WebView per baris berarti puluhan
+ * instance native sekaligus (limit list 50). Yang dipakai di sini karena itu
+ * hanya foto diam.
+ *
+ * Backend sekarang mengirim thumbnail_url == stream_url, yaitu stream, bukan
+ * JPEG. Kontrak API bagian 2.1 meminta signed URL berumur pendek, jadi
+ * thumbnail diam dianggap belum ada sampai nilainya berbeda dari stream_url.
+ * Begitu backend mengirim URL gambar sungguhan, blok di bawah aktif sendiri.
  */
 export function CameraThumbnail({ camera, height = 130, style }: CameraThumbnailProps) {
   const offline =
     camera.status === 'offline';
+  const [imageFailed, setImageFailed] = useState(false);
+
+  const stillUrl =
+    camera.thumbnail_url && camera.thumbnail_url !== camera.stream_url
+      ? camera.thumbnail_url
+      : null;
 
   return (
     <View style={[styles.thumb, { height }, style]}>
@@ -42,6 +54,13 @@ export function CameraThumbnail({ camera, height = 130, style }: CameraThumbnail
             <Icon name="videocam-off" size={34} color={Colors.textMuted} />
             <Text style={styles.offlineText}>Kamera tidak terhubung</Text>
           </>
+        ) : stillUrl && !imageFailed ? (
+          <Image
+            source={{ uri: stillUrl }}
+            style={styles.stillImage}
+            resizeMode="cover"
+            onError={() => setImageFailed(true)}
+          />
         ) : (
           <View style={styles.videoPlane}>
             <Text style={styles.videoLabel}>{camera.resolution}</Text>
