@@ -13,6 +13,7 @@ import { Colors } from '../../theme';
 import { cameraDetailStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
 import { StatusBadge } from '../../components/common';
+import { MjpegView } from '../../components/MjpegView';
 import { useData } from '../../context/DataContext';
 import { camerasApi, recordingsApi, snapshotsApi } from '../../api';
 import { formatDuration } from '../../utils/format';
@@ -139,12 +140,16 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
 
           <View style={styles.previewCenter}>
             {online ? (
-              <View style={styles.previewPlaceholder}>
-                <Icon name="videocam" size={44} color="rgba(255,255,255,0.25)" />
-                <Text style={styles.previewPlaceholderText}>
-                  {camera.resolution} · Live preview
-                </Text>
-              </View>
+              camera.stream_url ? (
+                <MjpegView url={camera.stream_url} />
+              ) : (
+                <View style={styles.previewPlaceholder}>
+                  <Icon name="videocam-off" size={44} color="rgba(255,255,255,0.25)" />
+                  <Text style={styles.previewPlaceholderText}>
+                    Sumber stream belum tersedia
+                  </Text>
+                </View>
+              )
             ) : (
               <Icon name="videocam-off" size={44} color={Colors.textMuted} />
             )}
