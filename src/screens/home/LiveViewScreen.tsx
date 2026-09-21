@@ -10,6 +10,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing } from '../../theme';
 import { liveViewStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
+import { MjpegView } from '../../components/MjpegView';
 import { useData } from '../../context/DataContext';
 import { camerasApi, snapshotsApi } from '../../api';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -21,7 +22,6 @@ export default function LiveViewScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { cameras, refresh } = useData();
   const camera = cameras.find(c => c.id === route.params.cameraId);
-  const [muted, setMuted] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -57,6 +57,7 @@ export default function LiveViewScreen({ navigation, route }: Props) {
   }
 
   const online = camera.status !== 'offline';
+  const streamUrl = camera.stream_url;
 
   return (
     <View style={styles.safe}>
@@ -86,17 +87,6 @@ export default function LiveViewScreen({ navigation, route }: Props) {
           <View style={styles.streamActions}>
             <TouchableOpacity
               style={styles.iconBtn}
-              onPress={() => setMuted(m => !m)}
-              hitSlop={10}
-            >
-              <Icon
-                name={muted ? 'volume-off' : 'volume-up'}
-                size={20}
-                color={Colors.white}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
               onPress={() => navigation.navigate('CameraDetail', { cameraId: camera.id })}
               hitSlop={10}
             >
@@ -106,15 +96,21 @@ export default function LiveViewScreen({ navigation, route }: Props) {
         </View>
 
         {online ? (
-          <View style={styles.streamCenter}>
-            <Icon name="videocam" size={80} color="rgba(255,255,255,0.12)" />
-            <Text style={styles.streamPlaceholder}>
-              Live stream akan tampil di sini
-            </Text>
-            <Text style={styles.streamHint}>
-              {camera.resolution} · {camera.fov}° FOV
-            </Text>
-          </View>
+          streamUrl ? (
+            <View style={styles.streamCenter}>
+              <MjpegView url={streamUrl} />
+            </View>
+          ) : (
+            <View style={styles.streamCenter}>
+              <Icon name="videocam-off" size={80} color="rgba(255,255,255,0.12)" />
+              <Text style={styles.streamPlaceholder}>
+                Sumber stream belum tersedia
+              </Text>
+              <Text style={styles.streamHint}>
+                Kamera ini tidak mengirim alamat stream.
+              </Text>
+            </View>
+          )
         ) : (
           <View style={styles.streamCenter}>
             <Icon name="videocam-off" size={80} color="rgba(255,255,255,0.2)" />
