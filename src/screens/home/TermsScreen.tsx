@@ -27,7 +27,7 @@ export default function TermsScreen({ navigation }: Props) {
     const load = async () => {
       try {
         const response = await helpApi.terms({ locale: 'id' });
-        setTerms(response.data);
+        setTerms(response);
       } catch (e) {
         setError((e as Error).message ?? 'Gagal memuat dokumen');
       } finally {
@@ -88,7 +88,7 @@ export default function TermsScreen({ navigation }: Props) {
               setLoading(true);
               setError(null);
               helpApi.terms({ locale: 'id' }).then(r => {
-                setTerms(r.data);
+                setTerms(r);
                 setLoading(false);
               }).catch(e => {
                 setError((e as Error).message ?? 'Gagal memuat');

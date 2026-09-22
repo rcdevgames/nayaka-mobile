@@ -48,7 +48,7 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
     recordingsApi
       .list({ camera_id: camera.id, limit: 20 })
       .then(res => {
-        if (active) setRelatedRecordings(res.data);
+        if (active) setRelatedRecordings(Array.isArray(res) ? res : []);
       })
       .catch(e => console.warn('Gagal memuat rekaman kamera', e))
       .finally(() => {
@@ -67,8 +67,8 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
       .getSettings(camera.id)
       .then(res => {
         if (!active) return;
-        setMotionDetect(res.data.motion_detection);
-        setNotifEnabled(res.data.notification_enabled);
+        setMotionDetect(res.motion_detection);
+        setNotifEnabled(res.notification_enabled);
       })
       .catch(e => console.warn('Gagal memuat pengaturan kamera', e))
       .finally(() => {
@@ -93,8 +93,7 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
     if (!camera || snapshotBusy) return;
     setSnapshotBusy(true);
     try {
-      const res = await snapshotsApi.create(camera.id);
-      const snapshot = res.data;
+      const snapshot = await snapshotsApi.create(camera.id);
       Alert.alert(
         'Snapshot disimpan',
         `${camera.name} · ${snapshot.resolution} (${formatBytes(snapshot.size_bytes)})`,

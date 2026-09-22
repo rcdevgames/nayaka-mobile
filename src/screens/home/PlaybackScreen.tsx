@@ -67,7 +67,7 @@ export default function PlaybackScreen({ navigation, route }: Props) {
           limit: 50,
         })
         .then(res => {
-          if (active) setRecordings(res.data);
+          if (active) setRecordings(Array.isArray(res) ? res : []);
         })
         .catch(e => console.warn('Gagal memuat rekaman', e))
         .finally(() => {

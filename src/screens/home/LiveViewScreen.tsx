@@ -141,8 +141,7 @@ export default function LiveViewScreen({ navigation, route }: Props) {
                 if (busy || !camera) return;
                 setBusy(true);
                 try {
-                  const res = await snapshotsApi.create(camera.id);
-                  const snapshot = res.data;
+                  const snapshot = await snapshotsApi.create(camera.id);
                   Alert.alert(
                     'Snapshot disimpan',
                     `${camera.name} · ${snapshot.resolution}`,
