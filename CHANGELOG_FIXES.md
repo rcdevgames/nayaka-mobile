@@ -3,6 +3,20 @@
 Catatan perbaikan terverifikasi untuk Nayaka CCTV mobile. Terbaru di atas.
 Bug baru dicari dengan: `grep -n -i "<gejala>" CHANGELOG_FIXES.md`
 
+### Fix #5 — Preview Camera Detail selalu menulis "Kamera tidak terhubung"
+
+| | |
+|---|---|
+| Tanggal | 2026-09-22 |
+| File | `src/screens/home/CameraDetailScreen.tsx`, `src/theme/styles.ts` |
+| Masalah | Footer preview selalu bertuliskan "Kamera tidak terhubung" walau kamera online dan stream jalan. |
+| Akar | Dua hal. (1) Teks itu **hardcoded** — tidak pernah membaca `camera.status`. Ia juga hanya akurat di jalur offline, kebetulan cocok. (2) `styles.preview` memakai `minHeight: 220` tanpa `height` tetap; `MjpegView` memakai tinggi eksplisit `100%`, dan induknya berada di dalam `ScrollView` (tinggi tak terbatas), jadi stream bisa melebar menutupi header/footer preview. |
+| Fix | Teks footer diturunkan dari `camera.status` (`MEREKAM` / `LIVE` / `TIDAK TERHUBUNG`). Placeholder menjelaskan alasannya sendiri: "Sumber stream belum tersedia" saat online tanpa `stream_url`, "Kamera tidak terhubung" + "Terakhir aktif …" saat offline. `styles.preview` dikunci `height: 260` (bukan `minHeight`) supaya header, stream, dan footer terbagi rapi di dalam ScrollView. `paddingVertical` di `previewCenter` dihapus karena sudah tak diperlukan. |
+| Verifikasi | ⚠️ **PENDING verifikasi visual** — `npx tsc --noEmit` bersih untuk file ini, eslint tidak menambah error baru (3 error yang tersisa pre-existing), dan test kontrak tetap lulus 5/5. Tetapi tampilan akhir di device **belum** dilihat. Perlu rebuild + buka Camera Detail, cek: footer menulis LIVE saat online, dan tinggi preview tidak meluber. |
+| Pelajaran | Teks status harus **diturunkan dari data**, bukan ditulis tetap — teks hardcoded terlihat benar selama kebetulan cocok, lalu jadi kebohongan begitu kondisinya berubah. Dan di dalam `ScrollView`, `minHeight` pada container yang memuat komponen bertinggi `100%` (WebView/Image full-bleed) tidak cukup: pakai `height` tetap, karena `100%` pada induk bertinggi tak terbatas jadi tak terdefinisi. |
+| Log Keyword | Kamera tidak terhubung, preview footer, hardcoded status text, MjpegView overflow, ScrollView minHeight, preview menutupi header |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. |
+
 ### Fix #4 — CameraDetail crash "Cannot read property 'length' of undefined"
 
 | | |
