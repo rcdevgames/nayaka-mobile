@@ -58,7 +58,10 @@ export default function RegisterScreen({ navigation }: Props) {
         style={authStyles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={authStyles.container}>
+        <ScrollView
+          contentContainerStyle={authStyles.container}
+          showsVerticalScrollIndicator={false}
+        >
           <TouchableOpacity
             style={authStyles.backBtn}
             onPress={() => navigation.goBack()}

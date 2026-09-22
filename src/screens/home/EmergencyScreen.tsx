@@ -162,6 +162,7 @@ export default function EmergencyScreen({ navigation }: Props) {
               renderItem={renderContact}
               keyExtractor={item => item.id}
               scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.listContainer}
             />
           </>

@@ -195,6 +195,7 @@ export default function HelpScreen({ navigation, route }: Props) {
           renderItem={renderArticle}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContainer}
+          showsVerticalScrollIndicator={false}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={
@@ -262,7 +263,11 @@ function HelpDetailScreen({
           <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : article ? (
-        <ScrollView style={styles.detailContent} contentContainerStyle={styles.detailContainer}>
+        <ScrollView
+          style={styles.detailContent}
+          contentContainerStyle={styles.detailContainer}
+          showsVerticalScrollIndicator={false}
+        >
           <Text style={styles.detailCategory}>{article.category}</Text>
           <Text style={styles.detailTitle}>{article.title}</Text>
           <Text style={styles.detailBody}>{article.content}</Text>

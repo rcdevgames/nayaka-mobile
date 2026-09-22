@@ -111,7 +111,10 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
           </View>
         }
       />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Live preview */}
         <View style={styles.preview}>
           <View style={styles.previewCenter}>
