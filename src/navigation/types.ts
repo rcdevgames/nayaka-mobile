@@ -1,3 +1,4 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { Recording } from '../types';
 
 export type AuthStackParamList = {
@@ -23,11 +24,11 @@ export type HomeStackParamList = {
 };
 
 export type MainTabParamList = {
-  HomeTab: undefined;
-  CamerasTab: undefined;
-  PlaybackTab: undefined;
-  AlertsTab: undefined;
-  ProfileTab: undefined;
+  HomeTab: NavigatorScreenParams<HomeStackParamList> | undefined;
+  CamerasTab: NavigatorScreenParams<HomeStackParamList> | undefined;
+  PlaybackTab: NavigatorScreenParams<HomeStackParamList> | undefined;
+  AlertsTab: NavigatorScreenParams<HomeStackParamList> | undefined;
+  ProfileTab: NavigatorScreenParams<HomeStackParamList> | undefined;
 };
 
 export type RootStackParamList = {

@@ -8,7 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Colors } from '../../theme';
 import { dashboardStyles as styles } from '../../theme/styles';
 import { Icon } from '../../components/Icon';
@@ -19,11 +19,22 @@ import { dashboardApi } from '../../api';
 import { timeAgo } from '../../utils/format';
 import type { Alert, Camera } from '../../types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { HomeStackParamList } from '../../navigation/types';
+import type { HomeStackParamList, MainTabParamList } from '../../navigation/types';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Dashboard'>;
 
+/**
+ * Halaman-halaman ini sudah menjadi tab sendiri. Kalau dibuka lewat navigate
+ * di dalam stack, halaman baru menumpuk di atas Dashboard padahal tab-nya sudah
+ * ada — jadi yang dipakai adalah lompat tab, bukan push.
+ */
+function useTabNavigation() {
+  return useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+}
+
 export default function DashboardScreen({ navigation }: Props) {
+  const tab = useTabNavigation();
   const { user } = useAuth();
   const { cameras, alerts, unreadCount } = useData();
   const firstName = user?.name?.split(' ')[0] ?? 'Pengguna';
@@ -74,7 +85,7 @@ export default function DashboardScreen({ navigation }: Props) {
           </View>
           <TouchableOpacity
             style={styles.notifBtn}
-            onPress={() => navigation.navigate('Alerts')}
+            onPress={() => tab.navigate('AlertsTab')}
           >
             <Icon name="notifications-none" size={22} color={Colors.text} />
             {displayAlerts > 0 && (
@@ -147,7 +158,7 @@ export default function DashboardScreen({ navigation }: Props) {
         <SectionHeader
           title="Kamera"
           action="Lihat semua"
-          onPress={() => navigation.navigate('Cameras')}
+          onPress={() => tab.navigate('CamerasTab')}
         />
         <FlatList
           horizontal
@@ -158,7 +169,10 @@ export default function DashboardScreen({ navigation }: Props) {
             <CameraMiniCard
               camera={item}
               onPress={() =>
-                navigation.navigate('CameraDetail', { cameraId: item.id })
+                tab.navigate('CamerasTab', {
+                  screen: 'CameraDetail',
+                  params: { cameraId: item.id },
+                })
               }
             />
           )}
@@ -173,13 +187,13 @@ export default function DashboardScreen({ navigation }: Props) {
         <SectionHeader
           title="Alert Terbaru"
           action="Semua alert"
-          onPress={() => navigation.navigate('Alerts')}
+          onPress={() => tab.navigate('AlertsTab')}
         />
         {alerts.slice(0, 3).map(item => (
           <AlertRow
             key={item.id}
             item={item}
-            onPress={() => navigation.navigate('Alerts')}
+            onPress={() => tab.navigate('AlertsTab')}
           />
         ))}
         {alerts.length === 0 && (
