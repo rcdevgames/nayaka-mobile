@@ -3,6 +3,20 @@
 Catatan perbaikan terverifikasi untuk Nayaka CCTV mobile. Terbaru di atas.
 Bug baru dicari dengan: `grep -n -i "<gejala>" CHANGELOG_FIXES.md`
 
+### Fix #6 — "Gagal memuat pengaturan kamera ApiError: Gagal (404)"
+
+| | |
+|---|---|
+| Tanggal | 2026-09-22 |
+| File | `src/api.ts`, `src/screens/home/CameraDetailScreen.tsx`, `src/theme/styles.ts` |
+| Masalah | Buka Camera Detail, console penuh `Gagal memuat pengaturan kamera ApiError: Gagal (404)`. Toggle "Deteksi Gerakan" dan "Notifikasi Alert" juga tidak pernah tersimpan. |
+| Akar | **Endpoint-nya tidak ada.** `camerasApi.getSettings/updateSettings` memanggil `/mobile/cameras/{id}/settings`, tetapi kontrak mobile §5 hanya mendaftarkan `GET /mobile/cameras` dan `GET /mobile/cameras/{id}`. Bukti pembeda: pesannya `Gagal (404)`, bukan `Data tidak ditemukan.` — 404 domain (dengan envelope `error`) akan memakai pesan ramah dari `ERROR_MESSAGES`, sedangkan `Gagal (404)` hanya muncul saat response tidak punya envelope, yaitu pola 404 bawaan framework untuk rute tak terdaftar. |
+| Fix | `getSettings`/`updateSettings` dihapus dari `camerasApi`. Section "Pengaturan" diganti "Preferensi Akun": nilainya dari `GET /mobile/me/settings` (yang memang ada di kontrak §9) dengan sub-label "Berlaku untuk semua kamera", sehingga tidak terbaca sebagai setelan per perangkat. Juga dihapus: kartu "Rekaman Terkait" (dipindah ke PlaybackScreen — list per kamera tetap ada di sana lewat `recordingsApi.list({camera_id})`), dan baris "Jadwal Perekaman" yang `onPress` kosong. `formatBytes` dan state `relatedRecordings` jadi ikut hilang. |
+| Verifikasi | ✅ Terverifikasi untuk penyebab 404 — bukti dari kode client (pesan error) + kontrak §5. `npx tsc --noEmit` bersih (hanya error `AuthContext` pre-existing), eslint 0 error, suite tetap 7/8 dengan 1 gagal pre-existing. **Belum** dilihat langsung di device setelah rebuild. |
+| Pelajaran | **Pesan error menentukan jenis 404.** `Gagal (404)` = rute tidak ada (framework 404 tanpa envelope). `Data tidak ditemukan.` = rute ada, resource tidak ada/milik orang lain. Jangan samakan keduanya saat mendiagnosis. **Dan: cek endpoint ada di kontrak sebelum menuduh backend rusak.** Layar sudah memanggil endpoint yang tidak pernah ada di kontrak; yang salah bukan servernya. Perhatikan juga bahwa `MOBILE_API_Contract.md` belum mencantumkan `/mobile/dashboard`, `/mobile/snapshots`, dan `/mobile/emergency-contacts` yang sudah dipakai mobile — kontraknya perlu disinkronkan. |
+| Log Keyword | Gagal memuat pengaturan kamera, ApiError Gagal 404, cameras/{id}/settings, endpoint tidak ada di kontrak, toggle tidak tersimpan |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. Backend perlu memutuskan apakah endpoint settings per kamera mau dibuat; kalau ya, mobile bisa memakainya lagi. |
+
 ### Fix #5 — Preview Camera Detail selalu menulis "Kamera tidak terhubung"
 
 | | |
