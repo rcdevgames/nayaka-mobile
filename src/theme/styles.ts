@@ -515,6 +515,8 @@ export const cameraDetailStyles = StyleSheet.create({
     color: Colors.text,
     marginLeft: Spacing.sm + 4,
   },
+  menuLabelWrap: { flex: 1, marginLeft: Spacing.sm + 4 },
+  menuSub: { fontSize: 11, color: Colors.textMuted, marginTop: 1 },
   noRec: { fontSize: 13, color: Colors.textMuted, paddingVertical: Spacing.sm },
   recRow: {
     flexDirection: 'row',

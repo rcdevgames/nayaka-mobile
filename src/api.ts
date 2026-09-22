@@ -389,19 +389,8 @@ export const camerasApi = {
   get: (id: string) =>
     api<Camera>(`/mobile/cameras/${id}`),
 
-  getSettings: (id: string) =>
-    api<{ motion_detection: boolean; notification_enabled: boolean }>(
-      `/mobile/cameras/${id}/settings`,
-    ),
-
-  updateSettings: (
-    id: string,
-    settings: { motion_detection?: boolean; notification_enabled?: boolean },
-  ) =>
-    api<{ motion_detection: boolean; notification_enabled: boolean }>(
-      `/mobile/cameras/${id}/settings`,
-      { method: 'PATCH', body: settings },
-    ),
+  // Endpoint pengaturan per kamera tidak ada di kontrak mobile §5 (hanya list dan
+  // detail kamera). Menambahkannya kembali menuntut perubahan backend lebih dulu.
 
   startRecording: (id: string) =>
     api<{ recording_id: string }>(`/mobile/cameras/${id}/recordings/start`, {

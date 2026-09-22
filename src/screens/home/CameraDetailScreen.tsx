@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../theme';
@@ -15,11 +14,11 @@ import { Icon, type IconName } from '../../components/Icon';
 import { StatusBadge } from '../../components/common';
 import { MjpegView } from '../../components/MjpegView';
 import { useData } from '../../context/DataContext';
-import { camerasApi, recordingsApi, snapshotsApi } from '../../api';
-import { formatDuration, timeAgo } from '../../utils/format';
+import { timeAgo } from '../../utils/format';
+import { settingsApi, snapshotsApi } from '../../api';
+import type { CustomerSettings } from '../../types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
-import type { CameraSettings, Recording } from '../../types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'CameraDetail'>;
 
@@ -32,61 +31,37 @@ function formatBytes(bytes: number): string {
 
 export default function CameraDetailScreen({ navigation, route }: Props) {
   const { cameras } = useData();
-  const [motionDetect, setMotionDetect] = useState(true);
-  const [notifEnabled, setNotifEnabled] = useState(true);
-  const [relatedRecordings, setRelatedRecordings] = useState<Recording[]>([]);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [localSettings, setLocalSettings] = useState<CustomerSettings | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
-  const [loadingRecordings, setLoadingRecordings] = useState(true);
 
   const camera = cameras.find(c => c.id === route.params.cameraId);
 
+  // Pengaturan kamera per perangkat belum ada endpointnya, jadi yang ditampilkan
+  // di sini nilai akun dari GET /mobile/me/settings, dengan label yang jujur.
   useEffect(() => {
     let active = true;
-    if (!camera) return;
-    setLoadingRecordings(true);
-    recordingsApi
-      .list({ camera_id: camera.id, limit: 20 })
-      .then(res => {
-        if (active) setRelatedRecordings(Array.isArray(res) ? res : []);
+    settingsApi
+      .get()
+      .then(s => {
+        if (active) setLocalSettings(s);
       })
-      .catch(e => console.warn('Gagal memuat rekaman kamera', e))
-      .finally(() => {
-        if (active) setLoadingRecordings(false);
-      });
+      .catch(e => console.warn('Gagal memuat preferensi akun', e));
     return () => {
       active = false;
     };
-  }, [camera?.id]);
+  }, []);
 
-  useEffect(() => {
-    let active = true;
-    if (!camera) return;
-    setSettingsLoaded(false);
-    camerasApi
-      .getSettings(camera.id)
-      .then(res => {
-        if (!active) return;
-        setMotionDetect(res.motion_detection);
-        setNotifEnabled(res.notification_enabled);
-      })
-      .catch(e => console.warn('Gagal memuat pengaturan kamera', e))
-      .finally(() => {
-        if (active) setSettingsLoaded(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [camera?.id]);
-
-  const saveSettings = (patch: { motion_detection?: boolean; notification_enabled?: boolean }) => {
-    if (!camera || !settingsLoaded) return;
-    camerasApi
-      .updateSettings(camera.id, patch)
+  const updatePreference = (patch: Partial<CustomerSettings>) => {
+    setLocalSettings(prev => (prev ? { ...prev, ...patch } : prev));
+    setSettingsBusy(true);
+    settingsApi
+      .update(patch)
       .catch(e => {
-        console.warn('Gagal menyimpan pengaturan kamera', e);
+        console.warn('Gagal menyimpan preferensi', e);
         Alert.alert('Gagal', (e as Error).message ?? 'Simpan pengaturan gagal.');
-      });
+      })
+      .finally(() => setSettingsBusy(false));
   };
 
   const handleSnapshot = async () => {
@@ -210,64 +185,32 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
           )}
         </View>
 
-        {/* Pengaturan */}
+        {/* Preferensi akun. Pengaturan per kamera belum ada endpointnya, jadi
+            labelnya menyebut akun supaya tidak terbaca sebagai setelan perangkat. */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Pengaturan</Text>
-          <SettingRow
-            icon="motion-photos-on"
-            label="Deteksi Gerakan"
-            value={motionDetect}
-            onChange={v => {
-              setMotionDetect(v);
-              saveSettings({ motion_detection: v });
-            }}
-          />
-          <View style={styles.divider} />
-          <SettingRow
-            icon="notifications-active"
-            label="Notifikasi Alert"
-            value={notifEnabled}
-            onChange={v => {
-              setNotifEnabled(v);
-              saveSettings({ notification_enabled: v });
-            }}
-          />
-          <View style={styles.divider} />
-          <TouchableOpacity style={styles.menuRow} onPress={() => {}}>
-            <Icon name="schedule" size={20} color={Colors.textMuted} />
-            <Text style={styles.menuLabel}>Jadwal Perekaman</Text>
-            <Icon name="chevron-right" size={20} color={Colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Rekaman */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Rekaman Terkait</Text>
-          {loadingRecordings ? (
-            <ActivityIndicator color={Colors.primary} style={{ padding: 16 }} />
-          ) : relatedRecordings.length === 0 ? (
-            <Text style={styles.noRec}>Belum ada rekaman untuk kamera ini.</Text>
+          <Text style={styles.cardTitle}>Preferensi Akun</Text>
+          {localSettings ? (
+            <>
+              <CameraSwitch
+                icon="motion-photos-on"
+                label="Deteksi Gerakan"
+                sub="Berlaku untuk semua kamera"
+                value={localSettings.motion_notifications}
+                disabled={settingsBusy}
+                onChange={v => updatePreference({ motion_notifications: v })}
+              />
+              <View style={styles.divider} />
+              <CameraSwitch
+                icon="notifications-active"
+                label="Notifikasi Alert"
+                sub="Berlaku untuk semua kamera"
+                value={localSettings.push_enabled}
+                disabled={settingsBusy}
+                onChange={v => updatePreference({ push_enabled: v })}
+              />
+            </>
           ) : (
-            relatedRecordings.map(rec => (
-              <TouchableOpacity
-                key={rec.id}
-                style={styles.recRow}
-                onPress={() =>
-                  navigation.navigate('PlaybackDetail', { recording: rec })
-                }
-              >
-                <View style={styles.recThumb}>
-                  <Icon name="movie" size={18} color={Colors.primary} />
-                </View>
-                <View style={styles.recInfo}>
-                  <Text style={styles.recTitle}>{rec.title}</Text>
-                  <Text style={styles.recMeta}>
-                    {new Date(rec.started_at).toLocaleDateString('id-ID')} · {formatDuration(rec.duration)}
-                  </Text>
-                </View>
-                <Icon name="play-circle-outline" size={22} color={Colors.primary} />
-              </TouchableOpacity>
-            ))
+            <Text style={styles.noRec}>Preferensi akun belum bisa dimuat.</Text>
           )}
         </View>
       </ScrollView>
@@ -318,24 +261,32 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SettingRow({
+function CameraSwitch({
   icon,
   label,
+  sub,
   value,
+  disabled,
   onChange,
 }: {
   icon: IconName;
   label: string;
+  sub?: string;
   value: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
     <View style={styles.menuRow}>
       <Icon name={icon} size={20} color={Colors.textMuted} />
-      <Text style={styles.menuLabel}>{label}</Text>
+      <View style={styles.menuLabelWrap}>
+        <Text style={styles.menuLabel}>{label}</Text>
+        {sub != null && <Text style={styles.menuSub}>{sub}</Text>}
+      </View>
       <Switch
         value={value}
         onValueChange={onChange}
+        disabled={disabled}
         trackColor={{ true: Colors.primarySoft, false: Colors.border }}
         thumbColor={value ? Colors.primary : Colors.surface}
       />
