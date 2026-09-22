@@ -420,9 +420,10 @@ export const cameraDetailStyles = StyleSheet.create({
   preview: {
     backgroundColor: Colors.surfaceDark,
     borderRadius: Radius.lg,
+    // Stream MJPEG memakai tinggi eksplisit; tanpa tinggi tetap di sini ia akan
+    // melebar menutupi header/footer preview (induknya di dalam ScrollView).
+    height: 260,
     overflow: 'hidden',
-    minHeight: 220,
-    justifyContent: 'space-between',
   },
   previewTop: {
     flexDirection: 'row',
@@ -452,13 +453,17 @@ export const cameraDetailStyles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.xl,
   },
   previewPlaceholder: { alignItems: 'center' },
   previewPlaceholderText: {
     color: 'rgba(255,255,255,0.4)',
     fontSize: 12,
     marginTop: 8,
+  },
+  previewPlaceholderHint: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 11,
+    marginTop: 4,
   },
   previewBottom: {
     padding: Spacing.sm + 4,

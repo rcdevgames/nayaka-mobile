@@ -16,7 +16,7 @@ import { StatusBadge } from '../../components/common';
 import { MjpegView } from '../../components/MjpegView';
 import { useData } from '../../context/DataContext';
 import { camerasApi, recordingsApi, snapshotsApi } from '../../api';
-import { formatDuration } from '../../utils/format';
+import { formatDuration, timeAgo } from '../../utils/format';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
 import type { CameraSettings, Recording } from '../../types';
@@ -138,24 +138,35 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
           </View>
 
           <View style={styles.previewCenter}>
-            {online ? (
-              camera.stream_url ? (
-                <MjpegView url={camera.stream_url} />
-              ) : (
-                <View style={styles.previewPlaceholder}>
-                  <Icon name="videocam-off" size={44} color="rgba(255,255,255,0.25)" />
-                  <Text style={styles.previewPlaceholderText}>
-                    Sumber stream belum tersedia
-                  </Text>
-                </View>
-              )
+            {online && camera.stream_url ? (
+              <MjpegView url={camera.stream_url} />
             ) : (
-              <Icon name="videocam-off" size={44} color={Colors.textMuted} />
+              <View style={styles.previewPlaceholder}>
+                <Icon
+                  name="videocam-off"
+                  size={44}
+                  color="rgba(255,255,255,0.25)"
+                />
+                <Text style={styles.previewPlaceholderText}>
+                  {online ? 'Sumber stream belum tersedia' : 'Kamera tidak terhubung'}
+                </Text>
+                {!online && camera.last_seen_at && (
+                  <Text style={styles.previewPlaceholderHint}>
+                    Terakhir aktif {timeAgo(camera.last_seen_at)}
+                  </Text>
+                )}
+              </View>
             )}
           </View>
 
           <View style={styles.previewBottom}>
-            <Text style={styles.previewTime}>Kamera tidak terhubung</Text>
+            <Text style={styles.previewTime}>
+              {camera.status === 'recording'
+                ? 'MEREKAM'
+                : camera.status === 'online'
+                  ? 'LIVE'
+                  : 'TIDAK TERHUBUNG'}
+            </Text>
           </View>
         </View>
 
