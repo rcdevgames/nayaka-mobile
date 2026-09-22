@@ -425,13 +425,6 @@ export const cameraDetailStyles = StyleSheet.create({
     height: 260,
     overflow: 'hidden',
   },
-  previewTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: Spacing.sm + 4,
-  },
-  previewLabel: { color: Colors.white, fontSize: 13, fontWeight: '600', flex: 1, marginRight: 8 },
   previewBadges: { flexDirection: 'row', gap: 6 },
   recTag: {
     flexDirection: 'row',

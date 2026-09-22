@@ -13,6 +13,7 @@ import { cameraDetailStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
 import { StatusBadge } from '../../components/common';
 import { MjpegView } from '../../components/MjpegView';
+import { AppHeader } from '../../components/AppHeader';
 import { useData } from '../../context/DataContext';
 import { timeAgo } from '../../utils/format';
 import { settingsApi, snapshotsApi } from '../../api';
@@ -93,25 +94,26 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
   const online = camera.status !== 'offline';
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <AppHeader
+        title={camera.name}
+        subtitle={camera.location}
+        onBack={() => navigation.goBack()}
+        right={
+          <View style={styles.previewBadges}>
+            {camera.is_recording && (
+              <View style={styles.recTag}>
+                <View style={styles.recDot} />
+                <Text style={styles.recText}>REC</Text>
+              </View>
+            )}
+            <StatusBadge status={camera.status} />
+          </View>
+        }
+      />
       <ScrollView contentContainerStyle={styles.content}>
         {/* Live preview */}
         <View style={styles.preview}>
-          <View style={styles.previewTop}>
-            <Text style={styles.previewLabel} numberOfLines={1}>
-              {camera.name}
-            </Text>
-            <View style={styles.previewBadges}>
-              {camera.is_recording && (
-                <View style={styles.recTag}>
-                  <View style={styles.recDot} />
-                  <Text style={styles.recText}>REC</Text>
-                </View>
-              )}
-              <StatusBadge status={camera.status} />
-            </View>
-          </View>
-
           <View style={styles.previewCenter}>
             {online && camera.stream_url ? (
               <MjpegView url={camera.stream_url} />
