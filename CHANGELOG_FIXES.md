@@ -3,6 +3,20 @@
 Catatan perbaikan terverifikasi untuk Nayaka CCTV mobile. Terbaru di atas.
 Bug baru dicari dengan: `grep -n -i "<gejala>" CHANGELOG_FIXES.md`
 
+### Fix #4 — CameraDetail crash "Cannot read property 'length' of undefined"
+
+| | |
+|---|---|
+| Tanggal | 2026-09-22 |
+| File | `src/api.ts`, `src/screens/home/{CameraDetailScreen,LiveViewScreen,PlaybackScreen,TermsScreen}.tsx`, `__tests__/RecordingsApi.test.ts` |
+| Masalah | Masuk halaman Camera Detail langsung crash. Error menunjuk `relatedRecordings.length` di bagian "Rekaman Terkait". Layar lain (snapshot, pengaturan kamera, Terms, Playback) juga ikut rusak dengan gejala berbeda. |
+| Akar | `api()` **sudah** membuka envelope `{data, meta}` (src/api.ts:150-157) dan mengembalikan `data` saja. Tetapi belasan deklarasi endpoint masih bertipe `api<{ data: X; meta: … }>`, seolah envelope belum dibuka. Jadi hasilnya object `undefined`, dan `res.data` → `undefined` → `.length` meledak. Satu akar, banyak gejala. |
+| Fix | Semua deklarasi `api<{ data: X }>` diubah jadi `api<X>` untuk endpoint **objek** (recordings.get, alerts.get, snapshots.create, cameras.getSettings/updateSettings, start/stopRecording, terms, forgotPassword, registerPushToken, enableBiometric, legacyAuthApi.me/updateProfile). Untuk endpoint **list** (recordings.list, snapshots.list), pindah ke `request()` + `unwrapList` — pola yang sudah dipakai `alertsApi.list` dan `camerasApi.list`. Call site di layar disesuaikan, plus guard `Array.isArray`. Helper mati `unwrapApiData` dihapus (duplikat logika envelope — sumber kebingungan itu sendiri). |
+| Verifikasi | ✅ Terverifikasi — `__tests__/RecordingsApi.test.ts` memastikan list mengembalikan array langsung. `npx tsc --noEmit` justru yang menemukan 2 call site tersembunyi di `TermsScreen` (`response.data` pada `LegalDocument`) yang belum saya sadari. Suite penuh tetap 6/7 (satu gagal pre-existing, lihat di bawah). |
+| Pelajaran | **`api()` mengembalikan payload dalam, bukan envelope.** Tulis `api<Recording>`, bukan `api<{data: Recording}>`. TypeScript TIDAK menangkap versi salah untuk endpoint objek — `res.data` bertipe `any`-ish sehingga baru meledak saat runtime. Untuk list, selalu `request()` + `unwrapList` + guard `Array.isArray` di call site: payload non-array tidak boleh sampai ke `.length`/`.map`. |
+| Log Keyword | cannot read property length of undefined, CameraDetail crash, relatedRecordings, envelope, unwrapList, res.data undefined, Rekaman Terkait |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. |
+
 ### Fix #3 — Kamera tanpa stream_url: layar tidak bisa memutar live view
 
 | | |
