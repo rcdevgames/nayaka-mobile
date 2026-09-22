@@ -3,6 +3,20 @@
 Catatan perbaikan terverifikasi untuk Nayaka CCTV mobile. Terbaru di atas.
 Bug baru dicari dengan: `grep -n -i "<gejala>" CHANGELOG_FIXES.md`
 
+### Fix #7 — Halaman push tanpa header, dan halaman tab ikut di-push
+
+| | |
+|---|---|
+| Tanggal | 2026-09-22 |
+| File | `src/components/AppHeader.tsx` (baru), `src/screens/home/CameraDetailScreen.tsx`, `src/screens/home/DashboardScreen.tsx`, `src/navigation/types.ts`, `src/theme/styles.ts`, `__tests__/DashboardNavigation.test.tsx` |
+| Masalah | Dua keluhan. (1) Halaman yang di-push tidak punya header aplikasi. (2) Halaman yang sebenarnya sudah jadi tab tetap dibuka sebagai halaman baru. |
+| Akar | (1) Header aplikasi tidak pernah dilembagakan: tiap layar menulis header sendiri-sendiri, dan `CameraDetailScreen` tidak menulis sama sekali — header-nya cuma nama kamera yang ikut ter-scroll di dalam kartu preview, jadi tidak ada judul tetap maupun tombol kembali. (2) `HomeStack` diinstansiasi 5 kali oleh `MainTabs` (satu per tab, initial route berbeda: Dashboard/Cameras/Playback/Alerts/Settings). Karena `Alerts`, `Cameras`, dan `Playback` juga ada sebagai screen di dalam `HomeStackParamList`, tombol Dashboard men-`navigate('Alerts')` **di dalam stack** dan menumpuk layar baru di atas Dashboard — padahal tab `AlertsTab` sudah ada. Ketika itu terjadi, `goBack` pun tidak bisa kembali ke Dashboard, karena Dashboard sudah bukan layar teratas. |
+| Fix | `AppHeader` dibuat sebagai komponen bersama (judul, subjudul opsional, tombol kembali opsional, slot kanan) dan dipakai `CameraDetailScreen`; `SafeAreaView`-nya diubah ke `edges={['bottom']}` karena header sekarang menangani inset atas. `MainTabParamList` diberi `NavigatorScreenParams<HomeStackParamList>` supaya navigasi tab bisa menyebut layar anak bertipe aman. Dashboard kini memakai `useNavigation<BottomTabNavigationProp<MainTabParamList>>` dan mengarah ke `AlertsTab` / `CamerasTab`, sedangkan kartu kamera memakai `navigate('CamerasTab', { screen: 'CameraDetail', params })` sehingga detail muncul **di dalam** tab Kamera. |
+| Verifikasi | ✅ Terverifikasi untuk navigasi — `__tests__/DashboardNavigation.test.tsx` (2 test) mengunci bahwa Dashboard tidak lagi push `Alerts`/`Cameras`/`CameraDetail`. `npx tsc --noEmit` bersih (hanya `AuthContext` pre-existing), eslint 0 error baru, suite 9/10 (1 gagal pre-existing). ⚠️ **Tampilan header di device BELUM dilihat** — perlu rebuild dan buka Camera Detail untuk memastikan judul, subjudul lokasi, badge status, dan jarak aman atas tampak benar. |
+| Pelajaran | **Satu screen di dalam `StackParamList` tidak otomatis berarti harus dipush.** Kalau layar itu juga jadi tab, arahkan lewat tab (`navigate('XTab', { screen: ... })`), bukan lewat stack. Tanda bahayanya: setelah push, tombol kembali terasa aneh karena layar sebelumnya bukan yang diharapkan. Dan: header aplikasi sebaiknya satu komponen bersama — begitu tiap layar menulis headernya sendiri, cepat atau lambat ada layar yang lupa, seperti `CameraDetailScreen` di sini. |
+| Log Keyword | tidak ada header, push page tanpa header, bukan tab, halaman menumpuk, goBack tidak kembali, AppHeader, CameraDetail tanpa judul |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. |
+
 ### Fix #6 — "Gagal memuat pengaturan kamera ApiError: Gagal (404)"
 
 | | |
