@@ -163,18 +163,7 @@ export async function request(
   return { data: rawData, meta: {} };
 }
 
-// Some list endpoints nest their collection (e.g. {articles: [], pagination}), others return
-// a bare array. Callers only need the collection, so pick whichever key holds an array.
-function unwrapApiData<T>(value: T): T {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const record = value as Record<string, unknown>;
-  if ('data' in record && Object.keys(record).every(key => key === 'data' || key === 'meta')) {
-    return record.data as T;
-  }
-  return value;
-}
-
-// Kept out of the generic unwrap: only list callers need the collection pulled out of its wrapper.
+// Only list callers need the collection pulled out of its wrapper.
 function unwrapList<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
   if (value && typeof value === 'object') {
@@ -267,10 +256,11 @@ export const authApi = {
     }),
 
   forgotPassword: (email: string) =>
-    api<{ data: { sent: boolean; expires_in: number }; meta: { request_id: string } }>(
-      '/mobile/auth/forgot-password',
-      { method: 'POST', body: { email }, authenticated: false },
-    ),
+    api<{ sent: boolean; expires_in: number }>('/mobile/auth/forgot-password', {
+      method: 'POST',
+      body: { email },
+      authenticated: false,
+    }),
 
   resetPassword: (email: string, code: string, new_password: string) =>
     api<void>('/mobile/auth/reset-password', {
@@ -400,7 +390,7 @@ export const camerasApi = {
     api<Camera>(`/mobile/cameras/${id}`),
 
   getSettings: (id: string) =>
-    api<{ data: { motion_detection: boolean; notification_enabled: boolean }; meta: { request_id: string } }>(
+    api<{ motion_detection: boolean; notification_enabled: boolean }>(
       `/mobile/cameras/${id}/settings`,
     ),
 
@@ -408,22 +398,20 @@ export const camerasApi = {
     id: string,
     settings: { motion_detection?: boolean; notification_enabled?: boolean },
   ) =>
-    api<{ data: { motion_detection: boolean; notification_enabled: boolean }; meta: { request_id: string } }>(
+    api<{ motion_detection: boolean; notification_enabled: boolean }>(
       `/mobile/cameras/${id}/settings`,
       { method: 'PATCH', body: settings },
     ),
 
   startRecording: (id: string) =>
-    api<{ data: { recording_id: string }; meta: { request_id: string } }>(
-      `/mobile/cameras/${id}/recordings/start`,
-      { method: 'POST' },
-    ),
+    api<{ recording_id: string }>(`/mobile/cameras/${id}/recordings/start`, {
+      method: 'POST',
+    }),
 
   stopRecording: (id: string) =>
-    api<{ data: { recording_id: string }; meta: { request_id: string } }>(
-      `/mobile/cameras/${id}/recordings/stop`,
-      { method: 'POST' },
-    ),
+    api<{ recording_id: string }>(`/mobile/cameras/${id}/recordings/stop`, {
+      method: 'POST',
+    }),
 };
 
 // ── Recording API ───────────────────────────────────────────────────────
@@ -461,17 +449,12 @@ export const recordingsApi = {
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.cursor) q.set('cursor', params.cursor);
     const qs = q.toString();
-    return api<{
-      data: Recording[];
-      meta: {
-        request_id: string;
-        pagination?: { cursor: string; has_more: boolean };
-      };
-    }>(`/mobile/recordings${qs ? `?${qs}` : ''}`);
+    return request(`/mobile/recordings${qs ? `?${qs}` : ''}`).then(({ data }) =>
+      unwrapList<Recording>(data),
+    );
   },
 
-  get: (id: string) =>
-    api<{ data: Recording; meta: { request_id: string } }>(`/mobile/recordings/${id}`),
+  get: (id: string) => api<Recording>(`/mobile/recordings/${id}`),
 };
 
 // ── Alert API ───────────────────────────────────────────────────────────
@@ -515,8 +498,7 @@ export const alertsApi = {
     );
   },
 
-  get: (id: string) =>
-    api<{ data: Alert; meta: { request_id: string } }>(`/mobile/alerts/${id}`),
+  get: (id: string) => api<Alert>(`/mobile/alerts/${id}`),
 
   markRead: (id: string) =>
     api<{ meta: { request_id: string } }>(`/mobile/alerts/${id}/read`, {
@@ -562,7 +544,7 @@ export interface Snapshot {
 
 export const snapshotsApi = {
   create: (cameraId: string) =>
-    api<{ data: Snapshot; meta: { request_id: string } }>('/mobile/snapshots', {
+    api<Snapshot>('/mobile/snapshots', {
       method: 'POST',
       body: { camera_id: cameraId },
     }),
@@ -573,13 +555,9 @@ export const snapshotsApi = {
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.cursor) q.set('cursor', params.cursor);
     const qs = q.toString();
-    return api<{
-      data: Snapshot[];
-      meta: {
-        request_id: string;
-        pagination?: { cursor: string; has_more: boolean };
-      };
-    }>(`/mobile/snapshots${qs ? `?${qs}` : ''}`);
+    return request(`/mobile/snapshots${qs ? `?${qs}` : ''}`).then(({ data }) =>
+      unwrapList<Snapshot>(data),
+    );
   },
 };
 
@@ -658,9 +636,7 @@ export const helpApi = {
     if (params?.locale) q.set('locale', params.locale);
     if (params?.version) q.set('version', params.version);
     const qs = q.toString();
-    return api<{ data: LegalDocument; meta: { request_id: string } }>(
-      `/mobile/terms${qs ? `?${qs}` : ''}`,
-    );
+    return api<LegalDocument>(`/mobile/terms${qs ? `?${qs}` : ''}`);
   },
 };
 
@@ -702,10 +678,10 @@ export const settingsApi = {
     request('/mobile/me/settings', { method: 'PATCH', body: settings }).then(({ data }) => data as CustomerSettings),
 
   registerPushToken: (installationId: string, token: string, platform: string) =>
-    api<{ data: { installation_id: string }; meta: { request_id: string } }>(
-      '/mobile/me/push-tokens',
-      { method: 'POST', body: { installation_id: installationId, token, platform } },
-    ),
+    api<{ installation_id: string }>('/mobile/me/push-tokens', {
+      method: 'POST',
+      body: { installation_id: installationId, token, platform },
+    }),
 
   removePushToken: (installationId: string) =>
     api<{ meta: { request_id: string } }>(
@@ -714,10 +690,9 @@ export const settingsApi = {
     ),
 
   enableBiometric: () =>
-    api<{ data: { enabled: boolean }; meta: { request_id: string } }>(
-      '/mobile/me/biometric',
-      { method: 'POST' },
-    ),
+    api<{ enabled: boolean }>('/mobile/me/biometric', {
+      method: 'POST',
+    }),
 
   disableBiometric: () =>
     api<{ meta: { request_id: string } }>('/mobile/me/biometric', {
@@ -755,15 +730,15 @@ export const legacyAuthApi = {
     })),
 
   me: () =>
-    api<{ data: { id: string; full_name: string; email: string; status: string; avatar_url: string | null } }>(
+    api<{ id: string; full_name: string; email: string; status: string; avatar_url: string | null }>(
       '/mobile/me',
-    ).then(r => ({ user: { id: r.data.id, name: r.data.full_name, email: r.data.email, role: r.data.status } })),
+    ).then(r => ({ user: { id: r.id, name: r.full_name, email: r.email, role: r.status } })),
 
   updateProfile: (name: string) =>
-    api<{ data: { id: string; full_name: string; email: string; status: string } }>(
+    api<{ id: string; full_name: string; email: string; status: string }>(
       '/mobile/me',
       { method: 'PATCH', body: { full_name: name } },
-    ).then(r => ({ user: { id: r.data.id, name: r.data.full_name, email: r.data.email, role: r.data.status } })),
+    ).then(r => ({ user: { id: r.id, name: r.full_name, email: r.email, role: r.status } })),
 
   changePassword: (oldPassword: string, newPassword: string) =>
     api<{ meta: { request_id: string } }>('/mobile/auth/change-password', {
