@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '../../theme';
 import { cameraDetailStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
@@ -16,7 +17,7 @@ import { MjpegView } from '../../components/MjpegView';
 import { AppHeader } from '../../components/AppHeader';
 import { useData } from '../../context/DataContext';
 import { timeAgo } from '../../utils/format';
-import { settingsApi, snapshotsApi } from '../../api';
+import { settingsApi, snapshotsApi, getAuthToken } from '../../api';
 import type { CustomerSettings } from '../../types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
@@ -35,6 +36,15 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
   const [localSettings, setLocalSettings] = useState<CustomerSettings | null>(null);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
+  // Stream key untuk force-remount MjpegView — setiap masuk halaman stream di-restart
+  const [streamKey, setStreamKey] = useState(0);
+
+  // Force-remount stream setiap kali halaman di-focus (masuk/keluar lalu masuk lagi)
+  useFocusEffect(
+    useCallback(() => {
+      setStreamKey(k => k + 1);
+    }, []),
+  );
 
   const camera = cameras.find(c => c.id === route.params.cameraId);
 
@@ -119,7 +129,7 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
         <View style={styles.preview}>
           <View style={styles.previewCenter}>
             {online && camera.stream_url ? (
-              <MjpegView url={camera.stream_url} />
+              <MjpegView key={`stream-${streamKey}`} url={camera.stream_url} accessToken={getAuthToken() ?? undefined} />
             ) : (
               <View style={styles.previewPlaceholder}>
                 <Icon

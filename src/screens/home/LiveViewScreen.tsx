@@ -12,7 +12,7 @@ import { liveViewStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
 import { MjpegView } from '../../components/MjpegView';
 import { useData } from '../../context/DataContext';
-import { camerasApi, snapshotsApi } from '../../api';
+import { camerasApi, snapshotsApi, getAuthToken } from '../../api';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
 
@@ -25,12 +25,15 @@ export default function LiveViewScreen({ navigation, route }: Props) {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  // Stream key untuk force-remount MjpegView — setiap masuk halaman stream di-restart
+  const [streamKey, setStreamKey] = useState(0);
 
-  // Kalau kamera memang lagi merekam (mis. cam-2), tampilkan tombol Stop.
+  // Force-remount stream setiap kali halaman di-focus (masuk/keluar lalu masuk lagi)
   useFocusEffect(
     useCallback(() => {
       setRecording(camera?.is_recording ?? false);
       setElapsed(0);
+      setStreamKey(k => k + 1);
     }, [camera?.id]), // eslint-disable-line react-hooks/exhaustive-deps
   );
 
@@ -98,7 +101,7 @@ export default function LiveViewScreen({ navigation, route }: Props) {
         {online ? (
           streamUrl ? (
             <View style={styles.streamCenter}>
-              <MjpegView url={streamUrl} />
+              <MjpegView key={`stream-${streamKey}`} url={streamUrl} accessToken={getAuthToken() ?? undefined} />
             </View>
           ) : (
             <View style={styles.streamCenter}>

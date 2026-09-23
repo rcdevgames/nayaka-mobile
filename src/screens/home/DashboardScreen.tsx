@@ -5,17 +5,16 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
-  StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Colors } from '../../theme';
 import { dashboardStyles as styles } from '../../theme/styles';
 import { Icon } from '../../components/Icon';
-import { StatusBadge, StatCard, SectionHeader } from '../../components/common';
+import { StatusBadge, SectionHeader } from '../../components/common';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
-import { dashboardApi } from '../../api';
+import { dashboardApi, subscriptionsApi, type RawSubscription } from '../../api';
 import { timeAgo } from '../../utils/format';
 import type { Alert, Camera } from '../../types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -25,12 +24,34 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 type Props = NativeStackScreenProps<HomeStackParamList, 'Dashboard'>;
 
 /**
- * Halaman-halaman ini sudah menjadi tab sendiri. Kalau dibuka lewat navigate
- * di dalam stack, halaman baru menumpuk di atas Dashboard padahal tab-nya sudah
- * ada — jadi yang dipakai adalah lompat tab, bukan push.
+ * Lompat ke tab SEKALIGUS menyebut layar akarnya.
+ *
+ * Tiap tab punya stack sendiri, dan stack itu tidak ikut di-reset saat tab
+ * ditinggalkan — kartu kamera di Dashboard justru sengaja mengarah ke
+ * CameraDetail di dalam tab Kamera. Jadi `navigate('CamerasTab')` saja akan
+ * memakai state terakhir tab itu dan yang muncul adalah detail kamera, bukan
+ * daftar kamera.
+ *
+ * Menyebut layar akarnya memakai `navigate`, bukan `push`: kalau layar itu sudah
+ * ada di stack, React Navigation kembali ke sana dan membuang layar di atasnya —
+ * persis yang diinginkan tombol "lihat semua".
  */
 function useTabNavigation() {
-  return useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+  const tab = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+  return React.useMemo(
+    () => ({
+      /** Buka tab pada layar akarnya (daftar), bukan layar terakhir yang tersisa. */
+      openRoot(screen: 'Cameras' | 'Alerts') {
+        const tabName = screen === 'Cameras' ? 'CamerasTab' : 'AlertsTab';
+        tab.navigate(tabName, { screen });
+      },
+      /** Untuk layar yang memang hanya ada sebagai anak di dalam tab. */
+      openDetail(tabName: 'CamerasTab', params: { cameraId: string }) {
+        tab.navigate(tabName, { screen: 'CameraDetail', params });
+      },
+    }),
+    [tab],
+  );
 }
 
 export default function DashboardScreen({ navigation }: Props) {
@@ -45,9 +66,13 @@ export default function DashboardScreen({ navigation }: Props) {
   const [recordingCount, setRecordingCount] = React.useState(0);
   const [alertUnread, setAlertUnread] = React.useState(0);
 
+  // Subscription status from GET /mobile/me
+  const [sub, setSub] = React.useState<RawSubscription | null>(null);
+
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+
       dashboardApi
         .get()
         .then(d => {
@@ -59,11 +84,32 @@ export default function DashboardScreen({ navigation }: Props) {
           }
         })
         .catch(e => console.warn('Gagal memuat statistik', e));
+
+      subscriptionsApi
+        .current()
+        .then(s => {
+          if (active) setSub(s);
+        })
+        .catch(() => {});
+
       return () => {
         active = false;
       };
     }, [cameras.length]),
   );
+
+  // Derive subscription info (support field name variants)
+  const getSubField = (keys: string[]) => {
+    for (const k of keys) {
+      const v = sub?.[k];
+      if (v !== undefined && v !== null && v !== '') return v;
+    }
+    return undefined;
+  };
+  const subPlanName = getSubField(['plan_name', 'planName', 'plan', 'name']) as string | null;
+  const subStatus = (getSubField(['status']) as string | null)?.toLowerCase() ?? null;
+  const isFree = !sub || !subStatus;
+  const isActive = subStatus === 'active';
 
   const displayTotal = totalCameras || cameras.length;
   const displayActive = activeCameras || cameras.filter(c => c.status === 'online').length;
@@ -85,7 +131,7 @@ export default function DashboardScreen({ navigation }: Props) {
           </View>
           <TouchableOpacity
             style={styles.notifBtn}
-            onPress={() => tab.navigate('AlertsTab')}
+            onPress={() => tab.openRoot('Alerts')}
           >
             <Icon name="notifications-none" size={22} color={Colors.text} />
             {displayAlerts > 0 && (
@@ -97,6 +143,59 @@ export default function DashboardScreen({ navigation }: Props) {
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Subscription Banner */}
+        <TouchableOpacity
+          style={[
+            styles.subBanner,
+            isFree
+              ? styles.subBannerFree
+              : isActive
+                ? styles.subBannerActive
+                : styles.subBannerInactive,
+          ]}
+          onPress={() => navigation.navigate('Subscription')}
+          activeOpacity={0.85}
+        >
+          <View style={styles.subBannerLeft}>
+            <Icon
+              name={isFree ? 'star' : 'workspace-premium'}
+              size={20}
+              color={isFree ? Colors.warning : Colors.white}
+            />
+            <View style={styles.subBannerText}>
+              <Text
+                style={[
+                  styles.subBannerTitle,
+                  !isFree && { color: Colors.white },
+                ]}
+              >
+                {isFree ? 'Free Plan' : subPlanName ?? 'Langganan'}
+              </Text>
+              <Text
+                style={[
+                  styles.subBannerSub,
+                  !isFree && { color: 'rgba(255,255,255,0.8)' },
+                ]}
+              >
+                {isFree
+                  ? 'Akses fitur dasar'
+                  : isActive
+                    ? 'Aktif'
+                    : 'Perbarui langganan'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.subBannerRight}>
+            {isFree ? (
+              <View style={styles.subBannerBadge}>
+                <Text style={styles.subBannerBadgeText}>Upgrade</Text>
+              </View>
+            ) : (
+              <Icon name="chevron-right" size={20} color="rgba(255,255,255,0.7)" />
+            )}
+          </View>
+        </TouchableOpacity>
 
         {/* Emergency Call */}
         <TouchableOpacity
@@ -158,7 +257,7 @@ export default function DashboardScreen({ navigation }: Props) {
         <SectionHeader
           title="Kamera"
           action="Lihat semua"
-          onPress={() => tab.navigate('CamerasTab')}
+          onPress={() => tab.openRoot('Cameras')}
         />
         <FlatList
           horizontal
@@ -169,10 +268,7 @@ export default function DashboardScreen({ navigation }: Props) {
             <CameraMiniCard
               camera={item}
               onPress={() =>
-                tab.navigate('CamerasTab', {
-                  screen: 'CameraDetail',
-                  params: { cameraId: item.id },
-                })
+                tab.openDetail('CamerasTab', { cameraId: item.id })
               }
             />
           )}
@@ -187,13 +283,13 @@ export default function DashboardScreen({ navigation }: Props) {
         <SectionHeader
           title="Alert Terbaru"
           action="Semua alert"
-          onPress={() => tab.navigate('AlertsTab')}
+          onPress={() => tab.openRoot('Alerts')}
         />
         {alerts.slice(0, 3).map(item => (
           <AlertRow
             key={item.id}
             item={item}
-            onPress={() => tab.navigate('AlertsTab')}
+            onPress={() => tab.openRoot('Alerts')}
           />
         ))}
         {alerts.length === 0 && (
@@ -232,12 +328,16 @@ function CameraMiniCard({
         <Text style={styles.miniName} numberOfLines={1}>
           {camera.name}
         </Text>
-        <Text style={styles.miniLoc} numberOfLines={1}>
-          {camera.location}
-        </Text>
-        <View style={{ marginTop: 4 }}>
-          <StatusBadge status={camera.status} />
-        </View>
+        {camera.location && (
+          <Text style={styles.miniLoc} numberOfLines={1}>
+            {camera.location}
+          </Text>
+        )}
+        {camera.status && (
+          <View style={styles.miniBadge}>
+            <StatusBadge status={camera.status} />
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );

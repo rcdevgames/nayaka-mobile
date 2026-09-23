@@ -622,6 +622,64 @@ export const dashboardStyles = StyleSheet.create({
     borderColor: Colors.background,
   },
   notifDotText: { color: Colors.white, fontSize: 9, fontWeight: '700' },
+
+  // ── Subscription Banner ───────────────────────────────────────────────
+  subBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    ...Shadows.card,
+  },
+  subBannerFree: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  subBannerActive: {
+    backgroundColor: Colors.primary,
+  },
+  subBannerInactive: {
+    backgroundColor: Colors.warning,
+  },
+  subBannerActiveSub: {
+    color: 'rgba(255,255,255,0.8)',
+  },
+  subBannerLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  subBannerText: {
+    marginLeft: 10,
+  },
+  subBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  subBannerSub: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  subBannerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  subBannerBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  subBannerBadgeText: {
+    color: Colors.white,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
   emergencyCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -699,15 +757,16 @@ export const dashboardStyles = StyleSheet.create({
     marginBottom: Spacing.sm + 4,
   },
   miniCard: {
-    width: 240,
+    width: 200,
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg,
     padding: Spacing.sm,
     marginRight: Spacing.sm + 4,
     ...Shadows.card,
+    marginBottom: Spacing.sm + 4,
   },
   miniPreview: {
-    height: 110,
+    height: 120,
     borderRadius: Radius.md,
     backgroundColor: Colors.surfaceDark,
     alignItems: 'center',
@@ -715,8 +774,8 @@ export const dashboardStyles = StyleSheet.create({
   },
   miniRec: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     width: 10,
     height: 10,
     borderRadius: 5,
@@ -728,9 +787,10 @@ export const dashboardStyles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: Colors.recordingRed,
   },
-  miniInfo: { padding: Spacing.sm },
-  miniName: { fontSize: 14, fontWeight: '700', color: Colors.text },
-  miniLoc: { fontSize: 11, color: Colors.textMuted, marginTop: 2 },
+  miniInfo: { paddingTop: 6 },
+  miniName: { fontSize: 13, fontWeight: '700', color: Colors.text },
+  miniLoc: { fontSize: 11, color: Colors.textMuted, marginTop: 1 },
+  miniBadge: { marginTop: 2, alignSelf: 'flex-start' },
   alertRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1537,4 +1597,39 @@ export const subscriptionStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyActionText: { fontSize: 14, fontWeight: '700', color: Colors.primary },
+
+  // ── Free Plan Card ────────────────────────────────────────────────────
+  freeCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginTop: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  freeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  freeTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  freeDesc: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  freeFeatures: {
+    gap: 4,
+  },
+
+  // ── Plans List ───────────────────────────────────────────────────────
+  plansList: {
+    gap: 0,
+  },
 });

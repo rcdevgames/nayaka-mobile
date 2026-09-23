@@ -15,6 +15,7 @@ export const BASE_URL = 'https://nayaka-admin.vercel.app/api/v1';
 export const TOKEN_KEY = '@nayaka_cctv_token';
 export const REFRESH_TOKEN_KEY = '@nayaka_cctv_refresh_token';
 export const USER_KEY = '@nayaka_cctv_user';
+export const INSTALLATION_ID_KEY = '@nayaka_cctv_installation_id';
 
 // ── Token Storage ────────────────────────────────────────────────────────
 export function getStoredToken(): Promise<string | null> {
@@ -33,6 +34,19 @@ export function getStoredRefreshToken(): Promise<string | null> {
 export function setStoredRefreshToken(token: string | null): Promise<void> {
   if (token) return AsyncStorage.setItem(REFRESH_TOKEN_KEY, token);
   return AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+
+/**
+ * ID instalasi dipakai login maupun refresh, jadi tinggal di sini — bukan di
+ * AuthContext — supaya lapisan API bisa me-refresh tanpa mengimpor React.
+ */
+export async function getInstallationId(): Promise<string> {
+  let id = await AsyncStorage.getItem(INSTALLATION_ID_KEY);
+  if (!id) {
+    id = `mobile-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+    await AsyncStorage.setItem(INSTALLATION_ID_KEY, id);
+  }
+  return id;
 }
 
 // ── Error Types ─────────────────────────────────────────────────────────
@@ -72,8 +86,113 @@ function getErrorMessage(code: string, fallback: string): string {
 // ── Auth Token ──────────────────────────────────────────────────────────
 let authToken: string | null = null;
 
+// Session-expired hanya boleh dipancarkan sekali per sesi. Tanpa ini, rantai
+// emit -> signOut() -> authApi.logout() -> 401 lagi -> emit berputar tanpa henti.
+let sessionExpiredEmitted = false;
+
 export function setAuthToken(token: string | null) {
   authToken = token;
+  // Sesi baru dimulai (login/hydrate): boleh memancarkan session-expired lagi.
+  if (token) sessionExpiredEmitted = false;
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+// ── Sesi berakhir ───────────────────────────────────────────────────────
+// Dipakai supaya lapisan API bisa memberi tahu AuthContext bahwa refresh token
+// sudah tidak berlaku lagi, tanpa api.ts mengimpor React.
+type SessionExpiredListener = () => void;
+const sessionExpiredListeners = new Set<SessionExpiredListener>();
+
+export function onSessionExpired(listener: SessionExpiredListener): () => void {
+  sessionExpiredListeners.add(listener);
+  return () => {
+    sessionExpiredListeners.delete(listener);
+  };
+}
+
+function emitSessionExpired() {
+  // Sekali per sesi. Beberapa request bisa menyebabkan ini hampir bersamaan
+  // (access token 15 menit), dan logout() berikutnya akan me-request 401 lagi.
+  if (sessionExpiredEmitted) return;
+  sessionExpiredEmitted = true;
+
+  sessionExpiredListeners.forEach(listener => {
+    try {
+      listener();
+    } catch (e) {
+      console.warn('Session expired listener gagal', e);
+    }
+  });
+}
+
+// ── Refresh token ───────────────────────────────────────────────────────
+const REFRESH_PATH = '/mobile/auth/refresh';
+
+// Single-flight: token akses berumur 15 menit, jadi beberapa request bisa
+// kena 401 hampir bersamaan. Semua menunggu satu refresh yang sama; tanpa ini
+// tiap request memutar refresh token sendiri dan backend menganggapnya reuse
+// (rotasi token) lalu mencabut sesi.
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function performRefresh(): Promise<string | null> {
+  const refreshToken = await getStoredRefreshToken();
+  if (!refreshToken) return null;
+
+  const installationId = await getInstallationId();
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${REFRESH_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+        installation_id: installationId,
+      }),
+    });
+  } catch {
+    return null;
+  }
+
+  if (!res.ok) return null;
+
+  let raw: Record<string, unknown>;
+  try {
+    raw = await res.json();
+  } catch {
+    return null;
+  }
+
+  const payload =
+    raw && raw.data && typeof raw.data === 'object'
+      ? (raw.data as Record<string, unknown>)
+      : raw;
+
+  const accessToken = payload?.access_token;
+  const newRefreshToken = payload?.refresh_token;
+
+  if (typeof accessToken !== 'string' || !accessToken) return null;
+
+  authToken = accessToken;
+  await setStoredToken(accessToken);
+  // Refresh token dirotasi; yang lama sudah tidak berlaku di server.
+  if (typeof newRefreshToken === 'string' && newRefreshToken) {
+    await setStoredRefreshToken(newRefreshToken);
+  }
+
+  return accessToken;
+}
+
+function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
 }
 
 // ── API Core ────────────────────────────────────────────────────────────
@@ -110,6 +229,14 @@ export async function request(
   path: string,
   opts: ApiOptions = {},
 ): Promise<{ data: unknown; meta: Record<string, unknown> }> {
+  return send(path, opts, true);
+}
+
+async function send(
+  path: string,
+  opts: ApiOptions,
+  allowRetry: boolean,
+): Promise<{ data: unknown; meta: Record<string, unknown> }> {
   const { method = 'GET', body, authenticated = true } = opts;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -136,7 +263,27 @@ export async function request(
     // Check if it's an error envelope
     if (rawData.error) {
       const err = rawData as unknown as ApiErrorResponse;
-      const status = err.error.code === 'TOKEN_EXPIRED' || err.error.code === 'TOKEN_REVOKED' ? 401 : res.status;
+      const expired =
+        err.error.code === 'TOKEN_EXPIRED' || err.error.code === 'TOKEN_REVOKED';
+
+      // Access token habis umurnya (15 menit): coba perpanjang dulu, baru
+      // menyerah. Sesi baru benar-benar dianggap berakhir (lempar ke logout)
+      // kalau refresh token sendiri tidak berlaku, ATAU kalau server masih
+      // menolak pada percobaan ulang dengan token baru.
+      // Sebelumnya, kasus "refresh berhasil tapi tetap 401" hanya dilempar
+      // sebagai ApiError biasa — pengguna tetap masuk dengan sesi yang sudah
+      // mati, dan setiap layar menampilkan error "Sesi Anda telah berakhir".
+      if (expired && authenticated) {
+        if (allowRetry) {
+          const refreshed = await refreshAccessToken();
+          if (refreshed) {
+            return send(path, opts, false);
+          }
+        }
+        emitSessionExpired();
+      }
+
+      const status = expired ? 401 : res.status;
       throw new ApiError(status, err.error.code, getErrorMessage(err.error.code, err.error.message));
     }
   } catch (e) {
@@ -233,17 +380,9 @@ export const authApi = {
       authenticated: false,
     }),
 
-  refresh: (refresh_token: string, installation_id: string) =>
-    api<{
-      access_token: string;
-      refresh_token: string;
-      token_type: string;
-      expires_in: number;
-    }>('/mobile/auth/refresh', {
-      method: 'POST',
-      body: { refresh_token, installation_id },
-      authenticated: false,
-    }),
+  // Refresh token ditangani otomatis oleh request() saat menerima 401, jadi
+  // tidak ada method refresh terpisah di sini — dua jalur refresh yang berbeda
+  // justru berisiko memutar token dua kali dan membuat server mencabut sesi.
 
   logout: () =>
     api<{ meta: { request_id: string } }>('/mobile/auth/logout', {
@@ -401,6 +540,46 @@ export const camerasApi = {
     api<{ recording_id: string }>(`/mobile/cameras/${id}/recordings/stop`, {
       method: 'POST',
     }),
+};
+
+// ── Thumbnails API ───────────────────────────────────────────────────────
+// Fetch thumbnail JPEG dengan auth header, return base64 data URL.
+// React Native <Image> tidak support custom headers, jadi perlu ini.
+export const thumbnailsApi = {
+  /**
+   * Fetch thumbnail untuk sebuah camera.
+   * @param thumbnailUrl URL relatif dari API (misal "/api/v1/mobile/stream/{id}/thumbnail")
+   * @returns Promise<string> base64 data URL: "data:image/jpeg;base64,..."
+   */
+  fetch: async (thumbnailUrl: string): Promise<string> => {
+    if (!thumbnailUrl || thumbnailUrl === 'null' || thumbnailUrl === 'undefined') {
+      throw new Error('Thumbnail URL kosong');
+    }
+    const fullUrl = thumbnailUrl.startsWith('http')
+      ? thumbnailUrl
+      : `${BASE_URL}${thumbnailUrl}`;
+
+    if (!authToken) throw new Error('Belum login');
+
+    const res = await fetch(fullUrl, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        Accept: 'image/jpeg',
+      },
+    });
+
+    if (!res.ok) {
+      throw new ApiError(res.status, 'THUMBNAIL_ERROR', `Gagal mengambil thumbnail (${res.status})`);
+    }
+
+    const blob = await res.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Gagal decode thumbnail'));
+      reader.readAsDataURL(blob);
+    });
+  },
 };
 
 // ── Recording API ───────────────────────────────────────────────────────
