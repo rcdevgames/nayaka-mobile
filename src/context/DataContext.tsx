@@ -8,7 +8,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import { useAuth } from './AuthContext';
-import { alertsApi, camerasApi } from '../api';
+import { alertsApi, camerasApi, getStoredToken } from '../api';
 import type { Alert, Camera } from '../types';
 
 interface DataContextValue {
@@ -36,6 +36,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
         camerasApi.list({ limit: 50 }),
         alertsApi.list({ limit: 50 }),
       ]);
+      // Debug: lihat URL stream/thumbnail persis seperti yang dikirim backend.
+      if (Array.isArray(camRes)) {
+        camRes.forEach(c =>
+          console.log(
+            `[camera] ${c.name} | stream=${c.stream_url} | thumbnail=${c.thumbnail_url ?? '-'}`,
+          ),
+        );
+        if (__DEV__) {
+          getStoredToken().then(t =>
+            console.log(`[camera] token=${t ?? '-'}`),
+          );
+        }
+      }
       setCameras(Array.isArray(camRes) ? camRes : []);
       setAlerts(Array.isArray(alertRes) ? alertRes : []);
       setUnreadCount(Array.isArray(alertRes) ? alertRes.filter(a => !a.read).length : 0);

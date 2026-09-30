@@ -47,13 +47,16 @@ export function StatusBadge({
   status: Status;
   style?: StyleProp<ViewStyle>;
 }) {
-  const color = STATUS_COLOR[status];
-  const isOffline = status === 'offline';
+  // Backend bisa mengirim status di luar tiga nilai yang dikenal; label dan
+  // warna jangan sampai kosong hanya karena ejaannya berbeda.
+  const label = STATUS_LABEL[status] ?? 'Tidak diketahui';
+  const color = STATUS_COLOR[status] ?? Colors.textMuted;
+  const isOffline = status === 'offline' || !STATUS_LABEL[status];
   return (
     <View style={[styles.badge, { backgroundColor: `${color}1A` }, style]}>
       {!isOffline && <View style={[styles.dot, { backgroundColor: color }]} />}
       <Text style={[styles.badgeText, { color: isOffline ? Colors.textMuted : color }]}>
-        {STATUS_LABEL[status]}
+        {label}
       </Text>
     </View>
   );

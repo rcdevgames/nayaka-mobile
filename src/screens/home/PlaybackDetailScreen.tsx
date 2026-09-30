@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing } from '../../theme';
@@ -74,13 +73,6 @@ export default function PlaybackDetailScreen({ navigation, route }: Props) {
               {formatDate(rec.started_at)} · {durationStr}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.iconBtn}
-            onPress={() => Alert.alert('Info', 'Unduh rekaman (dummy).')}
-            hitSlop={10}
-          >
-            <Icon name="download" size={20} color={Colors.white} />
-          </TouchableOpacity>
         </View>
 
         {/* Player placeholder */}

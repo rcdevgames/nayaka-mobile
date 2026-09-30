@@ -93,6 +93,16 @@ export const cameraThumbnailStyles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(18,21,31,0.65)',
   },
+  // WebView 1x1 tak terlihat: hanya dipakai sekali untuk mengambil frame
+  // pertama dari stream. Begitu frame diterima, WebView-nya dilepas.
+  capture: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
   thumbFooter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -464,6 +474,18 @@ export const cameraDetailStyles = StyleSheet.create({
     borderTopColor: Colors.gridLines,
   },
   previewTime: { color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center' },
+  previewStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.recordingRed,
+    marginRight: 6,
+  },
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -1244,6 +1266,8 @@ export const profileStyles = StyleSheet.create({
     marginRight: Spacing.sm + 4,
   },
   menuLabel: { flex: 1, fontSize: 14, fontWeight: '600', color: Colors.text },
+  menuTextWrap: { flex: 1 },
+  menuSub: { fontSize: 11, color: Colors.textMuted, marginTop: 2 },
   menuValue: { fontSize: 12, color: Colors.textMuted, marginRight: 4 },
   divider: { height: 1, backgroundColor: Colors.border },
   logoutBtn: {
@@ -1560,6 +1584,13 @@ export const subscriptionStyles = StyleSheet.create({
     marginTop: Spacing.lg,
     marginBottom: 8,
     marginLeft: 4,
+  },
+  plansNote: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 18,
+    marginHorizontal: 4,
+    marginBottom: Spacing.sm,
   },
   detailCard: {
     backgroundColor: Colors.surface,

@@ -27,6 +27,31 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  const resendCode = async () => {
+    if (resending || resendCooldown > 0) return;
+    setResending(true);
+    try {
+      await authApi.forgotPassword(email);
+      setResendCooldown(60);
+      Alert.alert('Kode dikirim', 'Kode verifikasi baru sudah dikirim ke email Anda.');
+      const timer = setInterval(() => {
+        setResendCooldown(value => {
+          if (value <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return value - 1;
+        });
+      }, 1000);
+    } catch (e) {
+      Alert.alert('Gagal', (e as Error).message ?? 'Tidak dapat mengirim ulang kode.');
+    } finally {
+      setResending(false);
+    }
+  };
 
   const onSubmit = async () => {
     if (!code.trim()) {
@@ -140,9 +165,13 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
               Kode berlaku selama 15 menit.{' '}
               <Text
                 style={authStyles.footerLink}
-                onPress={() => navigation.goBack()}
+                onPress={resendCode}
               >
-                Kirim ulang kode
+                {resending
+                  ? 'Mengirim...'
+                  : resendCooldown > 0
+                    ? `Kirim ulang dalam ${resendCooldown} detik`
+                    : 'Kirim ulang kode'}
               </Text>
             </Text>
           </View>

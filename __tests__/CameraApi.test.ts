@@ -36,3 +36,29 @@ describe('camera stream URL contract', () => {
     expect(cameras[0].thumbnail_url).toBe(streamUrl);
   });
 });
+
+describe('camera status normalization', () => {
+  const fetchWithStatus = (status: string) =>
+    jest.fn(async () =>
+      new Response(JSON.stringify({ data: [{ ...camera, status }], meta: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ) as unknown as typeof fetch;
+
+  it.each([
+    ['active', 'online'],
+    ['online', 'online'],
+    ['streaming', 'online'],
+    ['recording', 'recording'],
+    ['offline', 'offline'],
+    ['unknown', 'offline'],
+    ['inactive', 'offline'],
+  ])('memetakan status telemetry %s menjadi %s', async (raw, expected) => {
+    globalThis.fetch = fetchWithStatus(raw);
+
+    const cameras = await camerasApi.list();
+
+    expect(cameras[0].status).toBe(expected);
+  });
+});

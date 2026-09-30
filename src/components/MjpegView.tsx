@@ -1,185 +1,174 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Text } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { BASE_URL } from '../api';
+import { MJPEG_FRAME_READER } from './mjpegFrames';
 
 interface MjpegViewProps {
   url: string;
-  accessToken?: string;
+  /** Dilaporkan ke layar induk supaya teks status ikut keadaan stream. */
+  onStateChange?: (state: MjpegViewState) => void;
 }
 
-// Prepend BASE_URL jika url relatif (misal "/api/v1/mobile/stream/{id}")
+// Prepend BASE_URL jika url relatif (misal "/mobile/stream/{id}")
 const resolveUrl = (url: string) =>
   url?.startsWith('http') ? url : `${BASE_URL}${url}`;
 
-// Escape untuk JavaScript string literal (di dalam backticks)
-const escapeJS = (value: string) =>
-  value
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$/g, '\\$');
-
-// Inject loading state ke WebView via postMessage
-const html = (url: string, accessToken?: string) => {
-  const fullUrl = resolveUrl(url);
-  const token = escapeJS(accessToken ?? '');
+/**
+ * Halaman yang dirender di dalam WebView.
+ *
+ * Lapis 1 memakai <img src> biasa: WebView sendiri yang men-decode
+ * multipart/x-mixed-replace. Tidak ada fetch, CORS, atau blob URL yang bisa
+ * gagal di dokumen ber-origin opaque (baseUrl WebView).
+ *
+ * Lapis 2 dipakai hanya kalau lapis 1 tidak pernah mengirim frame: parser
+ * multipart manual yang menggambar tiap JPEG sebagai data URL.
+ */
+const html = (url: string) => {
+  const stream = JSON.stringify(resolveUrl(url)).replace(/</g, '\\u003c');
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <style>
-    html, body { margin: 0; padding: 0; background: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-    #frame { max-width: 100%; max-height: 100%; object-fit: contain; }
-    #log { position: fixed; top: 0; left: 0; right: 0; background: rgba(0,0,0,0.85); color: #0f0; font-family: monospace; font-size: 11px; padding: 6px; max-height: 120px; overflow-y: auto; z-index: 9999; }
-    #log div { margin: 2px 0; }
-    #log .err { color: #f66; }
-    #log .ok { color: #6f6; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; }
+    #frame { display: none; max-width: 100%; max-height: 100%; object-fit: contain; }
   </style>
 </head>
 <body>
-  <div id="log"></div>
   <img id="frame" alt="live" />
   <script>
-    (function() {
-      var logEl = document.getElementById('log');
-      var streamUrl = "${escapeJS(fullUrl)}";
-      var accessToken = "${token}";
+    (function () {
+      var STREAM = ${stream};
+      var IMG_TIMEOUT_MS = 10000;
+      var MAX_IMG_ATTEMPTS = 2;
+
       var img = document.getElementById('frame');
-      var xhr = null;
-      var buffer = '';
-      var boundary = null;
-      var frameCount = 0;
-      var startTime = Date.now();
-      
-      function log(msg, type) {
-        type = type || 'info';
-        var t = ((Date.now() - startTime) / 1000).toFixed(1);
-        var line = '<div class="' + type + '">[' + t + 's] ' + msg + '</div>';
-        logEl.innerHTML += line;
-        logEl.scrollTop = logEl.scrollHeight;
-        console.warn('[stream:' + t + 's] ' + msg);
-      }
-      
-      function onFrameReady(blob) {
-        var url = URL.createObjectURL(blob);
-        img.src = url;
-        frameCount++;
-        if (frameCount === 1) {
-          log('Frame #1 received! Stream aktif.', 'ok');
-          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type: 'load'}));
-        } else if (frameCount % 10 === 0) {
-          log('Frame #' + frameCount + ' received.', 'info');
+      var mode = 'img';
+      var imgAttempts = 0;
+      var frames = 0;
+      var reader = null;
+      var imgTimer = null;
+      var settled = false;
+
+      ${MJPEG_FRAME_READER}
+
+      function post(type, extra) {
+        var payload = { type: type };
+        for (var key in extra) payload[key] = extra[key];
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+        }
+        if (type === 'error' || type === 'fallback') {
+          console.warn('[stream]', type, JSON.stringify(extra || {}));
         }
       }
-      
-      function parseFrame(text) {
-        var idx = text.indexOf('\\r\\n\\r\\n');
-        if (idx === -1) return null;
-        var header = text.substring(0, idx);
-        var content = text.substring(idx + 4);
-        var match = header.match(/Content-Length:\\s*(\\d+)/);
-        if (!match) return null;
-        var len = parseInt(match[1], 10);
-        if (content.length < len) return null;
-        var jpeg = content.substring(0, len);
-        return { jpeg: jpeg, rest: content.substring(len) };
+
+      // Gateway membuka sesi RTSP baru per permintaan, jadi URL yang sama tidak
+      // boleh diambil dari cache.
+      function bust(value) {
+        return value + (value.indexOf('?') === -1 ? '?' : '&') + '_=' + Date.now();
       }
-      
-      function processBuffer() {
-        if (!boundary || buffer.length < 50) return;
-        var parts = buffer.split('--' + boundary);
-        for (var i = 1; i < parts.length; i++) {
-          var result = parseFrame(parts[i]);
-          if (result) {
-            try {
-              var jpegData = atob(result.jpeg.trim());
-              var len = jpegData.length;
-              var buf = new Uint8Array(len);
-              for (var j = 0; j < len; j++) buf[j] = jpegData.charCodeAt(j);
-              var blob = new Blob([buf], {type: 'image/jpeg'});
-              onFrameReady(blob);
-            } catch(e) {
-              log('Decode error: ' + e.message, 'err');
-            }
-            buffer = result.rest;
-          }
+
+      function show() {
+        if (!settled) {
+          settled = true;
+          post('streaming', { mode: mode });
         }
+        img.style.display = 'block';
+        frames++;
+        if (frames % 25 === 0) post('frame', { frames: frames, mode: mode });
       }
-      
-      function startStream() {
-        log('=== STREAM DEBUG ===');
-        log('URL: ' + streamUrl);
-        log('Token: ' + (accessToken ? accessToken.substring(0, 20) + '...' : 'EMPTY'), 'err');
-        
-        xhr = new XMLHttpRequest();
-        xhr.open('GET', streamUrl, true);
-        xhr.setRequestHeader('Authorization', 'Bearer ' + accessToken);
-        xhr.setRequestHeader('Accept', 'multipart/x-mixed-replace');
-        
-        xhr.onload = function() {
-          log('XHR onload, status: ' + xhr.status, xhr.status === 200 ? 'ok' : 'err');
-          if (xhr.status !== 200) {
-            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type: 'error', status: xhr.status}));
-          }
+
+      // ── Lapis 1: <img src> ────────────────────────────────────────────────
+      function startImg() {
+        mode = 'img';
+        imgAttempts++;
+        clearTimeout(imgTimer);
+        imgTimer = setTimeout(function () {
+          if (mode !== 'img') return;
+          onImgFail('timeout');
+        }, IMG_TIMEOUT_MS);
+        img.onload = function () {
+          if (mode !== 'img') return;
+          clearTimeout(imgTimer);
+          img.onload = null;
+          img.onerror = null;
+          // onload pada multipart hanya menyala sekali, saat frame pertama tiba.
+          show();
         };
-        
-        xhr.onerror = function() {
-          log('XHR onerror - network error', 'err');
-          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type: 'error', status: 0}));
+        img.onerror = function () {
+          if (mode !== 'img') return;
+          clearTimeout(imgTimer);
+          onImgFail('error');
         };
-        
-        xhr.ontimeout = function() {
-          log('XHR timeout', 'err');
-        };
-        
-        xhr.onprogress = function(e) {
-          if (e.lengthComputable) {
-            var oldLen = buffer.length;
-            buffer += xhr.responseText.substring(oldLen);
-            var delta = buffer.length - oldLen;
-            
-            if (!boundary) {
-              var bi = buffer.indexOf('boundary=');
-              if (bi !== -1) {
-                boundary = buffer.substring(bi + 9).split('\\r\\n')[0].replace(/"/g, '');
-                log('Boundary found: ' + boundary, 'ok');
-              }
-            }
-            
-            if (frameCount === 0) {
-              log('Receiving data... buffer: ' + buffer.length + ' bytes');
-            }
-            
-            processBuffer();
-          }
-        };
-        
-        log('Opening XHR connection...');
-        xhr.send(null);
-        log('XHR sent, waiting for response...');
-        
-        // Timeout fallback
-        setTimeout(function() {
-          if (frameCount === 0) {
-            log('No frames after 10s. Buffer size: ' + buffer.length, 'err');
-            log('Buffer preview: ' + buffer.substring(0, 200));
-          }
-        }, 10000);
+        img.src = bust(STREAM);
+        post('connecting', { attempt: imgAttempts });
       }
-      
-      if (!streamUrl || streamUrl === 'null' || streamUrl === 'undefined') {
-        log('URL EMPTY - cannot start stream', 'err');
+
+      function onImgFail(reason) {
+        img.onload = null;
+        img.onerror = null;
+        clearTimeout(imgTimer);
+        if (imgAttempts < MAX_IMG_ATTEMPTS) {
+          setTimeout(startImg, 1500);
+          return;
+        }
+        post('fallback', { reason: reason, attempts: imgAttempts });
+        startParser();
+      }
+
+      // ── Lapis 2: parser multipart ─────────────────────────────────────────
+      function startParser() {
+        mode = 'parser';
+        fetch(bust(STREAM), {
+          cache: 'no-store',
+          headers: { Accept: 'multipart/x-mixed-replace' }
+        })
+          .then(function (response) {
+            if (!response.ok || !response.body) {
+              throw new Error('HTTP ' + response.status);
+            }
+            if (!MjpegFrames.setContentType(response.headers.get('content-type'))) {
+              throw new Error('Boundary tidak ditemukan pada Content-Type');
+            }
+            reader = response.body.getReader();
+            var pump = function () {
+              reader.read().then(
+                function (part) {
+                  if (part.done) {
+                    post('error', { message: 'Stream berakhir' });
+                    return;
+                  }
+                  MjpegFrames.push(part.value, function (frame) {
+                    img.src = bytesToDataUrl(frame);
+                    show();
+                  });
+                  pump();
+                },
+                function (e) {
+                  post('error', { message: 'Stream terputus: ' + (e && e.message ? e.message : e) });
+                }
+              );
+            };
+            pump();
+          })
+          .catch(function (e) {
+            post('error', { message: e && e.message ? e.message : String(e) });
+          });
+      }
+
+      if (!STREAM || STREAM === 'null' || STREAM === 'undefined') {
+        post('error', { message: 'URL stream kosong' });
         return;
       }
-      
-      startStream();
-      
-      window.onunload = function() {
-        if (xhr) {
-          log('Unloading, aborting XHR');
-          xhr.abort();
-        }
+
+      startImg();
+
+      window.onunload = function () {
+        if (reader) reader.cancel();
       };
     })();
   </script>
@@ -188,19 +177,21 @@ const html = (url: string, accessToken?: string) => {
 `;
 };
 
-type MjpegViewState = 'loading' | 'streaming' | 'error';
+export type MjpegViewState = 'loading' | 'streaming' | 'error';
 
-// Component-level instance counter untuk force-remount
+// Dinaikkan tiap mount supaya tombol "Coba lagi" memaksa WebView baru —
+// stream multipart tidak bisa di-restart tanpa memuat ulang halaman.
 let streamInstanceCounter = 0;
 
-export function MjpegView({ url, accessToken }: MjpegViewProps) {
+export function MjpegView({ url, onStateChange }: MjpegViewProps) {
   const [state, setState] = useState<MjpegViewState>('loading');
-  const [errorMsg, setErrorMsg] = useState<string>('');
-  // Key unik per mount — ubah ini untuk force-remount (stop + restart stream)
-  const [streamKey] = useState(() => ++streamInstanceCounter);
-  const mountedRef = useRef(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [fallback, setFallback] = useState(false);
+  // Key stabil per mount. Kalau nilainya berubah saat render, WebView remount
+  // dan stream ikut restart di tengah jalan.
+  const [instance, setInstance] = useState(() => ++streamInstanceCounter);
 
-  // Cleanup saat unmount: WebView unmount → window.onunload → XHR abort
+  const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -208,51 +199,74 @@ export function MjpegView({ url, accessToken }: MjpegViewProps) {
     };
   }, []);
 
-  const handleMessage = (e: { nativeEvent: { data: string } }) => {
+  // Layar induk memakai ini untuk menampilkan status stream apa adanya: status
+  // dari telemetry bisa tertinggal dari gambar yang benar-benar tampil.
+  useEffect(() => {
+    onStateChange?.(state);
+  }, [state, onStateChange]);
+
+  const handleMessage = useCallback((e: { nativeEvent: { data: string } }) => {
     if (!mountedRef.current) return;
+    let msg: { type?: string; message?: string };
     try {
-      const msg = JSON.parse(e.nativeEvent.data);
-      if (msg.type === 'load') setState('streaming');
-      if (msg.type === 'error') {
-        setState('error');
-        setErrorMsg(msg.status === 0 ? 'Network error' : `HTTP ${msg.status}`);
-      }
-      if (msg.type === 'log') console.warn('[stream]', msg.msg);
-    } catch {}
-  };
+      msg = JSON.parse(e.nativeEvent.data);
+    } catch {
+      return;
+    }
+    if (msg.type === 'streaming') setState('streaming');
+    if (msg.type === 'fallback') setFallback(true);
+    if (msg.type === 'error') {
+      setState('error');
+      setErrorMsg(msg.message ?? 'Stream tidak mengirim frame');
+    }
+  }, []);
+
+  const retry = useCallback(() => {
+    setState('loading');
+    setErrorMsg('');
+    setFallback(false);
+    setInstance(++streamInstanceCounter);
+  }, []);
 
   return (
     <View style={styles.container}>
       <WebView
-        key={`mjpeg-${streamKey}`}
-        source={{ html: html(url, accessToken), baseUrl: 'http://localhost' }}
+        key={`mjpeg-${instance}`}
+        testID="mjpeg-webview"
+        source={{ html: html(url), baseUrl: 'http://localhost' }}
         style={styles.webview}
         originWhitelist={['*']}
         mixedContentMode="always"
         javaScriptEnabled={true}
         domStorageEnabled={false}
+        scrollEnabled={false}
+        setSupportMultipleWindows={false}
         onMessage={handleMessage}
         onError={e => {
           if (!mountedRef.current) return;
-          console.warn('[stream] WebView error:', e.nativeEvent.description);
           setState('error');
           setErrorMsg(e.nativeEvent.description);
         }}
         onHttpError={e => {
           if (!mountedRef.current) return;
-          console.warn('[stream] HTTP error:', e.nativeEvent.statusCode);
           setState('error');
           setErrorMsg(`HTTP ${e.nativeEvent.statusCode}`);
         }}
       />
       {state === 'loading' && (
         <View style={styles.overlay}>
-          <Text style={styles.statusText}>Memuat stream...</Text>
+          <Text style={styles.statusText}>
+            {fallback ? 'Mencoba mode cadangan…' : 'Menghubungkan ke kamera…'}
+          </Text>
         </View>
       )}
       {state === 'error' && (
         <View style={styles.overlay}>
-          <Text style={styles.statusText}>Gagal: {errorMsg}</Text>
+          <Text style={styles.statusText}>Gagal memuat stream</Text>
+          <Text style={styles.detailText}>{errorMsg}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={retry} activeOpacity={0.8}>
+            <Text style={styles.retryText}>Coba lagi</Text>
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -268,14 +282,37 @@ const styles = StyleSheet.create({
   },
   webview: { flex: 1, backgroundColor: '#000' },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   statusText: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 13,
+  },
+  detailText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
 

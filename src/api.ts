@@ -437,21 +437,6 @@ export interface DashboardStats {
   offline_cameras: number;
   unknown_cameras: number;
   alert_unread: number;
-  recent_active_cameras: Array<{
-    id: string;
-    name: string;
-    status: string;
-    is_recording: boolean;
-  }>;
-  recent_alerts: Array<{
-    id: string;
-    camera_id: string;
-    camera_name: string;
-    type: string;
-    severity: string;
-    message: string;
-    time: string;
-  }>;
 }
 
 export const dashboardApi = {
@@ -474,8 +459,6 @@ export const dashboardApi = {
       offline_cameras: summary.camera_summary?.offline_count ?? 0,
       unknown_cameras: summary.camera_summary?.unknown_count ?? 0,
       alert_unread: summary.alert_summary?.unread_count ?? 0,
-      recent_active_cameras: [],
-      recent_alerts: [],
     } satisfies DashboardStats;
   },
 };
@@ -483,6 +466,31 @@ export const dashboardApi = {
 // ── Camera API ──────────────────────────────────────────────────────────
 export type CameraStatus = 'online' | 'offline' | 'recording';
 export type CameraType = 'indoor' | 'outdoor' | 'ptz' | 'doorbell';
+
+/**
+ * Status kamera berasal dari `camera_telemetry`, dan ejaannya tidak selalu sama
+ * dengan yang dipakai UI. Kontrak mobile bagian 5 menyebut hitungan
+ * `active`/`offline`/`unknown` di dashboard, sedangkan kolom `status` bisa
+ * berisi `active` atau `streaming`. Nilai mentah itu dulu jatuh ke cabang
+ * bukan-online di UI, jadi kamera yang gambarnya hidup tetap berlabel TIDAK
+ * TERHUBUNG. Petakan di tepi API supaya tidak ada layar yang menebak sendiri.
+ */
+export function normalizeCameraStatus(raw: unknown): CameraStatus {
+  switch (String(raw ?? '').toLowerCase()) {
+    case 'recording':
+      return 'recording';
+    case 'online':
+    case 'active':
+    case 'streaming':
+      return 'online';
+    default:
+      return 'offline';
+  }
+}
+
+// Nilai status mentah tidak pernah dipakai langsung oleh UI.
+const normalizeCamera = <T extends { status?: unknown }>(camera: T): T =>
+  ({ ...camera, status: normalizeCameraStatus(camera.status) }) as T;
 
 export interface Camera {
   id: string;
@@ -521,12 +529,12 @@ export const camerasApi = {
     if (params?.cursor) q.set('cursor', params.cursor);
     const qs = q.toString();
     return request(`/mobile/cameras${qs ? `?${qs}` : ''}`).then(({ data }) =>
-      unwrapList<Camera>(data),
+      unwrapList<Camera>(data).map(normalizeCamera),
     );
   },
 
   get: (id: string) =>
-    api<Camera>(`/mobile/cameras/${id}`),
+    api<Camera>(`/mobile/cameras/${id}`).then(normalizeCamera),
 
   // Endpoint pengaturan per kamera tidak ada di kontrak mobile §5 (hanya list dan
   // detail kamera). Menambahkannya kembali menuntut perubahan backend lebih dulu.
@@ -823,22 +831,17 @@ export const emergencyApi = {
 
 // ── Settings ─────────────────────────────────────────────────────────────
 export interface CustomerSettings {
-  push_enabled: boolean;
   motion_notifications: boolean;
-  biometric_enabled: boolean;
 }
 
 export const settingsApi = {
   get: async () => {
     const { data } = await request('/mobile/me/settings');
     const settings = data as {
-      notifications?: { enabled?: boolean };
       alerts?: { enabled?: boolean };
     };
     return {
-      push_enabled: settings.notifications?.enabled ?? false,
       motion_notifications: settings.alerts?.enabled ?? false,
-      biometric_enabled: false,
     } satisfies CustomerSettings;
   },
 

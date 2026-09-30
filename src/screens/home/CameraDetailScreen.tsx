@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -13,11 +14,11 @@ import { Colors } from '../../theme';
 import { cameraDetailStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
 import { StatusBadge } from '../../components/common';
-import { MjpegView } from '../../components/MjpegView';
+import { MjpegView, type MjpegViewState } from '../../components/MjpegView';
 import { AppHeader } from '../../components/AppHeader';
 import { useData } from '../../context/DataContext';
 import { timeAgo } from '../../utils/format';
-import { settingsApi, snapshotsApi, getAuthToken } from '../../api';
+import { settingsApi, snapshotsApi } from '../../api';
 import type { CustomerSettings } from '../../types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
@@ -31,18 +32,66 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+/**
+ * Teks di bawah preview mengikuti keadaan stream yang benar-benar tampil, bukan
+ * hanya status dari telemetry. Status kamera bisa tertinggal dari gambar, jadi
+ * feed yang hidup pernah muncul bersama tulisan TIDAK TERHUBUNG.
+ */
+export function previewStatusLabel(
+  streamState: MjpegViewState,
+  opts: { online: boolean; hasStream: boolean; recording: boolean },
+): string {
+  if (!opts.online || !opts.hasStream) return 'TIDAK TERHUBUNG';
+  if (streamState === 'error') return 'TIDAK TERHUBUNG';
+  if (streamState === 'streaming') return opts.recording ? 'MEREKAM' : 'LIVE';
+  return 'MENGHUBUNGKAN…';
+}
+
+/** Titik merah berkedip penanda feed hidup. */
+function BlinkingDot() {
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const blink = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.2,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    blink.start();
+    return () => blink.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      testID="preview-live-dot"
+      style={[styles.previewDot, { opacity }]}
+    />
+  );
+}
+
 export default function CameraDetailScreen({ navigation, route }: Props) {
   const { cameras } = useData();
   const [localSettings, setLocalSettings] = useState<CustomerSettings | null>(null);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
-  // Stream key untuk force-remount MjpegView — setiap masuk halaman stream di-restart
+  // Stream key untuk force-remount MjpegView â€” setiap masuk halaman stream di-restart
   const [streamKey, setStreamKey] = useState(0);
+  const [streamState, setStreamState] = useState<MjpegViewState>('loading');
 
   // Force-remount stream setiap kali halaman di-focus (masuk/keluar lalu masuk lagi)
   useFocusEffect(
     useCallback(() => {
       setStreamKey(k => k + 1);
+      setStreamState('loading');
     }, []),
   );
 
@@ -82,7 +131,7 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
       const snapshot = await snapshotsApi.create(camera.id);
       Alert.alert(
         'Snapshot disimpan',
-        `${camera.name} · ${snapshot.resolution} (${formatBytes(snapshot.size_bytes)})`,
+        `${camera.name} Â· ${snapshot.resolution} (${formatBytes(snapshot.size_bytes)})`,
       );
     } catch (e) {
       Alert.alert('Gagal', (e as Error).message ?? 'Ambil foto gagal.');
@@ -102,6 +151,11 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
   }
 
   const online = camera.status !== 'offline';
+  const statusLabel = previewStatusLabel(streamState, {
+    online,
+    hasStream: Boolean(camera.stream_url),
+    recording: camera.is_recording || camera.status === 'recording',
+  });
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -129,7 +183,11 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
         <View style={styles.preview}>
           <View style={styles.previewCenter}>
             {online && camera.stream_url ? (
-              <MjpegView key={`stream-${streamKey}`} url={camera.stream_url} accessToken={getAuthToken() ?? undefined} />
+              <MjpegView
+                key={`stream-${streamKey}`}
+                url={camera.stream_url}
+                onStateChange={setStreamState}
+              />
             ) : (
               <View style={styles.previewPlaceholder}>
                 <Icon
@@ -150,13 +208,10 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
           </View>
 
           <View style={styles.previewBottom}>
-            <Text style={styles.previewTime}>
-              {camera.status === 'recording'
-                ? 'MEREKAM'
-                : camera.status === 'online'
-                  ? 'LIVE'
-                  : 'TIDAK TERHUBUNG'}
-            </Text>
+            <View style={styles.previewStatus}>
+              {statusLabel === 'LIVE' && <BlinkingDot />}
+              <Text style={styles.previewTime}>{statusLabel}</Text>
+            </View>
           </View>
         </View>
 
@@ -184,7 +239,6 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
             onPress={handleSnapshot}
             disabled={!online || snapshotBusy}
           />
-          <ActionBtn icon="more-vert" label="Lainnya" onPress={() => Alert.alert('Info', 'Menu lainnya (dummy).')} />
         </View>
 
         {/* Detail */}
@@ -194,7 +248,7 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
           <DetailRow label="Lokasi" value={camera.location} />
           <DetailRow label="Alamat IP" value={camera.ip} />
           <DetailRow label="Resolusi" value={camera.resolution} />
-          <DetailRow label="Sudut Pandang" value={`${camera.fov}°`} />
+          <DetailRow label="Sudut Pandang" value={`${camera.fov}Â°`} />
           {camera.battery != null && (
             <DetailRow label="Baterai" value={`${camera.battery}%`} />
           )}
@@ -218,10 +272,10 @@ export default function CameraDetailScreen({ navigation, route }: Props) {
               <CameraSwitch
                 icon="notifications-active"
                 label="Notifikasi Alert"
-                sub="Berlaku untuk semua kamera"
-                value={localSettings.push_enabled}
-                disabled={settingsBusy}
-                onChange={v => updatePreference({ push_enabled: v })}
+                sub="Pengiriman push belum tersedia"
+                value={false}
+                disabled
+                onChange={() => undefined}
               />
             </>
           ) : (

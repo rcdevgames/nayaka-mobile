@@ -50,7 +50,6 @@ export default function ProfileScreen(_props: Props) {
     user,
     signOut,
     updateUser,
-    biometricAvailable,
     biometricType,
     biometricEnabled,
     enableBiometricLogin,
@@ -58,9 +57,7 @@ export default function ProfileScreen(_props: Props) {
   } = useAuth();
 
   // Settings state
-  const [pushNotif, setPushNotif] = useState(false);
   const [motionNotif, setMotionNotif] = useState(false);
-  const [settingsLoading, setSettingsLoading] = useState(true);
 
   // Edit Profil
   const [editOpen, setEditOpen] = useState(false);
@@ -83,33 +80,20 @@ export default function ProfileScreen(_props: Props) {
     const fetchSettings = async () => {
       try {
         const response = await settingsApi.get();
-        setPushNotif(response.push_enabled);
         setMotionNotif(response.motion_notifications);
-      } catch (e) {
-        console.warn('Gagal memuat settings', e);
-      } finally {
-        setSettingsLoading(false);
+      } catch {
+        console.warn('Gagal memuat settings');
       }
     };
     fetchSettings();
   }, []);
 
   // Toggle handlers
-  const handlePushToggle = useCallback(async (value: boolean) => {
-    setPushNotif(value);
-    try {
-      await settingsApi.update({ push_enabled: value });
-    } catch (e) {
-      setPushNotif(!value); // revert on error
-      Alert.alert('Gagal', 'Tidak dapat memperbarui pengaturan.');
-    }
-  }, []);
-
   const handleMotionToggle = useCallback(async (value: boolean) => {
     setMotionNotif(value);
     try {
       await settingsApi.update({ motion_notifications: value });
-    } catch (e) {
+    } catch {
       setMotionNotif(!value);
       Alert.alert('Gagal', 'Tidak dapat memperbarui pengaturan.');
     }
@@ -252,11 +236,10 @@ export default function ProfileScreen(_props: Props) {
         </Group>
 
         <Group title="Keamanan">
-          <MenuSwitch
+          <MenuInfo
             icon="push-pin"
             label="Notifikasi Push"
-            value={pushNotif}
-            onChange={handlePushToggle}
+            sub="Pengiriman push belum tersedia"
           />
           <Divider />
           <MenuSwitch
@@ -545,12 +528,12 @@ function MenuItem({
   icon: IconName;
   label: string;
   value?: string;
-  onPress?: () => void;
+  onPress: () => void;
 }) {
   return (
     <TouchableOpacity
       style={styles.menuItem}
-      onPress={onPress ?? (() => Alert.alert('Info', `Menu "${label}" (dummy).`))}
+      onPress={onPress}
       activeOpacity={0.7}
     >
       <View style={styles.menuIcon}>
@@ -586,6 +569,28 @@ function MenuSwitch({
         trackColor={{ true: Colors.primarySoft, false: Colors.border }}
         thumbColor={value ? Colors.primary : Colors.surface}
       />
+    </View>
+  );
+}
+
+function MenuInfo({
+  icon,
+  label,
+  sub,
+}: {
+  icon: IconName;
+  label: string;
+  sub: string;
+}) {
+  return (
+    <View style={styles.menuItem}>
+      <View style={styles.menuIcon}>
+        <Icon name={icon} size={18} color={Colors.primary} />
+      </View>
+      <View style={styles.menuTextWrap}>
+        <Text style={styles.menuLabel}>{label}</Text>
+        <Text style={styles.menuSub}>{sub}</Text>
+      </View>
     </View>
   );
 }

@@ -44,7 +44,7 @@ export default function MainTabs() {
         ),
       })}
     >
-      <Tab.Screen name="HomeTab" component={HomeStack} />
+      <Tab.Screen name="HomeTab" options={{ title: 'Home' }} component={HomeStack} />
       <Tab.Screen name="CamerasTab" options={{ title: 'Kamera' }} component={HomeStackCameras} />
       <Tab.Screen name="PlaybackTab" options={{ title: 'Rekaman' }} component={HomeStackPlayback} />
       <Tab.Screen name="AlertsTab" options={{ title: 'Alert' }} component={HomeStackAlerts} />

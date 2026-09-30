@@ -212,7 +212,5 @@ export interface EmergencyContact {
 
 // ── Settings ─────────────────────────────────────────────────────────────
 export interface CustomerSettings {
-  push_enabled: boolean;
   motion_notifications: boolean;
-  biometric_enabled: boolean;
 }

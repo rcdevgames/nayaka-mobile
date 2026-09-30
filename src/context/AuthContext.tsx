@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -17,6 +18,8 @@ import {
   setStoredToken,
   setStoredRefreshToken,
   getStoredToken,
+  getInstallationId,
+  onSessionExpired,
   type ApiError,
 } from '../api';
 import {
@@ -50,17 +53,6 @@ interface AuthContextValue {
 }
 
 const STORAGE_KEY = '@nayaka_cctv_user';
-const INSTALLATION_ID_KEY = '@nayaka_cctv_installation_id';
-
-// Generate or retrieve installation ID
-async function getInstallationId(): Promise<string> {
-  let id = await AsyncStorage.getItem(INSTALLATION_ID_KEY);
-  if (!id) {
-    id = `mobile-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-    await AsyncStorage.setItem(INSTALLATION_ID_KEY, id);
-  }
-  return id;
-}
 
 // Convert Customer to legacy User format
 function customerToUser(customer: {
@@ -241,11 +233,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = await getStoredToken();
     if (!token) return false;
 
-    const success = await enableBiometric(token);
-    if (success) {
+    const result = await enableBiometric(token);
+    if (result.ok) {
       setBiometricEnabled(true);
     }
-    return success;
+    return result.ok;
   }, [biometricAvailable]);
 
   // Disable biometric login - removes stored token
@@ -287,6 +279,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [biometricEnabled]);
+
+  // api.ts memanggil ini hanya setelah access token ditolak DAN refresh token
+  // ikut gagal — artinya sesi benar-benar berakhir, bukan sekadar token habis.
+  const signOutRef = useRef(signOut);
+  signOutRef.current = signOut;
+
+  useEffect(() => {
+    return onSessionExpired(() => {
+      console.warn('Sesi berakhir: refresh token tidak berlaku lagi');
+      signOutRef.current();
+    });
+  }, []);
 
   const value = useMemo(
     () => ({

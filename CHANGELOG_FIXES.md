@@ -3,6 +3,59 @@
 Catatan perbaikan terverifikasi untuk Nayaka CCTV mobile. Terbaru di atas.
 Bug baru dicari dengan: `grep -n -i "<gejala>" CHANGELOG_FIXES.md`
 
+### Fix #11 — Feed hidup tetap berlabel TIDAK TERHUBUNG
+
+| | |
+|---|---|
+| Tanggal | 2026-09-30 |
+| File | `src/api.ts`, `src/components/MjpegView.tsx`, `src/components/common.tsx`, `src/screens/home/CameraDetailScreen.tsx`, `src/theme/styles.ts`, `__tests__/CameraDetailStatus.test.tsx` (baru), `__tests__/CameraApi.test.ts` |
+| Masalah | Gambar live sudah muncul, tapi teks di bawah preview terus berbunyi TIDAK TERHUBUNG — seolah kamera belum tersambung padahal feednya jalan. |
+| Akar | Dua hal. (1) Teks itu membaca `camera.status` mentah, sementara backend mengirim ejaan dari `camera_telemetry` (`active`, `streaming`, `unknown`), bukan `online` — jadi selalu jatuh ke cabang terakhir. Ejaan mentah yang sama juga membuat badge status tampil kosong, filter Online/Offline di daftar kamera salah, dan status sistem di Dashboard salah. (2) Teks hanya melihat status telemetry, tidak pernah melihat apakah frame benar-benar tiba. |
+| Fix | `normalizeCameraStatus` di tepi API memetakan ejaan mentah ke tiga status kanonik (`online`/`active`/`streaming` → `online`, `recording` → `recording`, sisanya → `offline`) untuk `camerasApi.list` dan `get`, jadi semua layar ikut benar tanpa menebak sendiri. `StatusBadge` diberi cadangan 'Tidak diketahui' supaya nilai tak dikenal tidak pernah menghasilkan label kosong. Teks di bawah preview kini mengikuti keadaan stream lewat prop baru `onStateChange` di `MjpegView`: LIVE atau MEREKAM saat frame benar-benar tiba, MENGHUBUNGKAN… saat menunggu, dan TIDAK TERHUBUNG hanya saat gagal atau kamera memang offline. Saat LIVE, teksnya ditemani titik merah berkedip. |
+| Verifikasi | `npx tsc --noEmit` bersih, eslint tidak menambah error/warning baru, jest 8 suite / 34 test lulus — termasuk test render yang mendorong pesan `streaming` lalu `error` ke `MjpegView` dan memeriksa teks footer serta ada-tidaknya titik merah. ⚠️ **Belum dijalankan di device.** |
+| Pelajaran | Nilai enum dari backend tidak pernah boleh dibaca mentah di UI: kontrak bisa menyebut `active`, kolom bisa berisi `streaming`, dan layar yang menunggu `online` akan diam-diam jatuh ke cabang gagal tanpa error apa pun. Petakan sekali di tepi API. Untuk status yang bisa dibuktikan sendiri oleh aplikasi — frame MJPEG benar-benar tiba — keadaan nyata itu lebih dipercaya daripada telemetry. |
+| Log Keyword | tidak terhubung padahal live, status active tidak dikenali, normalisasi status kamera, footer preview salah, badge status kosong, indikator live, titik merah kedip |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. |
+### Fix #10 — Thumbnail daftar kamera selalu placeholder
+
+| | |
+|---|---|
+| Tanggal | 2026-09-30 |
+| File | `src/components/CameraThumbnail.tsx`, `src/components/mjpegFrames.ts` (baru), `src/components/MjpegView.tsx`, `src/theme/styles.ts`, `__tests__/CameraThumbnail.test.tsx` |
+| Masalah | Daftar kamera tidak pernah menampilkan gambar, hanya kotak resolusi kosong. |
+| Akar | Backend mengirim `thumbnail_url` sama persis dengan `stream_url`, jadi yang dikirim sebagai thumbnail adalah stream `multipart/x-mixed-replace` — `<Image>` RN tidak bisa memuat itu. Endpoint foto diam milik gateway (`/api/snapshot`) juga tidak bisa dipakai: menggantung lebih dari 25 detik tanpa balasan, karena gateway menunggu frame dari thread RTSP latarnya yang mati (`/api/status`: `running: false`, `last_error: "Failed to open RTSP stream"`, `last_frame_age_sec` ~9 jam). `Range` juga tidak didukung, jadi stream tidak bisa dipotong sekali baca. |
+| Fix | `CameraThumbnail` mengambil frame pertama dari stream lewat WebView 1x1, mengubahnya jadi data URL, lalu melepas WebView-nya — setelah itu thumbnail hanya `<Image>` biasa. Hasilnya di-cache per URL selama 5 menit supaya tidak diambil ulang. Paling banyak dua capture berjalan bersamaan dan sisanya mengantre, supaya daftar panjang tidak membuka belasan koneksi ke kamera sekaligus. Parser multipart dipindah ke `src/components/mjpegFrames.ts` agar dipakai bersama lapis cadangan `MjpegView`, bukan disalin dua kali. Jalur foto diam dari backend tetap jalur utama begitu kontraknya sudah benar. |
+| Verifikasi | ✅ Terverifikasi terhadap kamera asli. HTML yang benar-benar dihasilkan komponen dijalankan di Chromium lewat DevTools Protocol: frame tiba di detik ke-3 sebagai `data:image/jpeg;base64,`, dan setelah didecode menjadi JPEG 14.084 byte dengan magic `ffd8ff`. Kasus origin opaque (iframe `sandbox`, `Origin: null`) ikut diuji dan berhasil juga, jadi jalur ini aman untuk dokumen `loadDataWithBaseURL`. `npx tsc --noEmit` bersih, eslint 0 error baru, jest 7 suite / 25 test lulus. ⚠️ **Belum dijalankan di device.** |
+| Pelajaran | Kalau endpoint foto diam mati, frame pertama dari stream MJPEG sudah cukup untuk thumbnail — asal koneksinya dilepas begitu dapat satu frame, karena gateway membuka sesi RTSP per penonton. Ini tetap pekerjaan backend yang tertunda: `/api/snapshot` semestinya bisa dipakai, dan `thumbnail_url` semestinya bukan `stream_url`. |
+| Log Keyword | thumbnail placeholder, thumbnail tidak muncul, daftar kamera tanpa gambar, snapshot menggantung, Range tidak didukung, frame pertama stream |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. |
+### Fix #9 — Live view tidak pernah menampilkan gambar
+
+| | |
+|---|---|
+| Tanggal | 2026-09-29 |
+| File | `src/components/MjpegView.tsx`, `src/screens/home/LiveViewScreen.tsx`, `src/screens/home/CameraDetailScreen.tsx`, `__tests__/MjpegView.test.tsx` (baru) |
+| Masalah | Live view tidak pernah memunculkan gambar di device — hanya layar hitam, kadang dengan log debug hijau, tanpa penjelasan. |
+| Akar | Tiga hal bertumpuk. (1) `MjpegView` lama menarik stream lewat `fetch()` di dalam WebView, lalu menggambar tiap JPEG sebagai `blob:` URL. Halaman itu dimuat dengan `baseUrl: 'http://localhost'` (jalur `loadDataWithBaseURL`), yang di Android WebView ber-origin opaque; `blob:` URL turunan dokumen seperti itu tidak bisa dimuat sebagai gambar, jadi parser boleh saja menemukan frame sementara layarnya tetap hitam. (2) Paket yang sempat dicoba memang tidak bisa dipakai: `react-native-mjpeg` publish terakhir 2 Oktober 2015 dan isinya masih `React.createClass` + `require('react-native')` (crash di RN 0.87), sedangkan `react-native-mjpeg-cam` tidak ada di npm. (3) `Authorization: Bearer` yang dikirim ke stream ternyata tidak pernah dipakai — endpoint kamera terbuka. |
+| Fix | `MjpegView` ditulis ulang jadi dua lapis tanpa dependensi baru. Lapis 1: `<img src>` langsung ke URL stream, WebView sendiri yang men-decode `multipart/x-mixed-replace` — tanpa fetch, CORS, dan blob URL. Lapis 2 (cadangan, hanya kalau lapis 1 tidak mengirim frame dalam 10 detik): parser multipart manual yang menggambar tiap JPEG sebagai `data:` URL. Tiap permintaan diberi cache-buster karena gateway membuka sesi RTSP baru per viewer. Prop `accessToken` dihapus dari `MjpegView` dan kedua layar. Log debug di layar diganti overlay status: "Menghubungkan ke kamera…", "Mencoba mode cadangan…", dan saat gagal — pesan sebabnya plus tombol "Coba lagi". |
+| Verifikasi | ✅ Terverifikasi terhadap kamera asli. `curl` ke `http://110.232.92.134:3001/api/stream` → `200` `multipart/x-mixed-replace; boundary=frame`; dua frame berurutan punya md5 berbeda, jadi stream hidup (~2 fps). HTML yang benar-benar dihasilkan komponen di-dump lewat test sekali pakai, lalu dijalankan di Chromium headless: lapis 1 melapor `{"type":"streaming","mode":"img"}` pada detik ke-3, dan lapis 2 (dipaksa dengan `IMG_TIMEOUT_MS=1`) mengirim 50 frame dalam 20 detik. `npx tsc --noEmit` bersih, eslint 0 error baru, jest 7 suite / 21 test lulus. ⚠️ **Belum dijalankan di device** — perlu rebuild dan buka Live View untuk memastikan gambar muncul di layar. |
+| Pelajaran | **Jangan menaruh `blob:` URL di dokumen WebView yang di-load dengan `loadDataWithBaseURL`.** Origin-nya opaque, dan hasil `URL.createObjectURL` tidak bisa dimuat balik sebagai gambar — parser bisa terlihat "berhasil" sementara layar tetap hitam. Untuk MJPEG, `<img src>` polos lebih andal daripada fetch + parser: browser sudah punya decoder-nya, dan jalur itu tidak tersentuh CORS. Catatan backend: `GET /api/status` gateway masih melaporkan `"last_error": "Failed to open RTSP stream"`, `connected: false`, `reconnect_count: 23`, `last_frame_age_sec` ~8 jam — feed yang tampil sekarang datang dari jalur on-demand, bukan thread latar gateway. |
+| Log Keyword | stream tidak muncul, live view hitam, mjpeg tidak tampil, react-native-mjpeg, react-native-mjpeg-cam, blob url tidak tampil, loadDataWithBaseURL origin opaque, img multipart x-mixed-replace |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. |
+### Fix #8 — Tombol "Lihat semua" membuka detail kamera, bukan daftar kamera
+
+| | |
+|---|---|
+| Tanggal | 2026-09-22 |
+| File | `src/screens/home/DashboardScreen.tsx`, `__tests__/DashboardNavigation.test.tsx` |
+| Masalah | Tombol "Lihat semua" di section Kamera Dashboard tidak membuka halaman daftar kamera (`CamerasScreen`) — yang muncul malah detail kamera terakhir yang dilihat. |
+| Akar | **Sisa state stack tab.** `navigate('CamerasTab')` tanpa menyebut layar berarti "aktifkan tab Kamera dengan keadaan terakhirnya", bukan "buka layar utama tab itu". Kartu kamera di Dashboard (Fix #7) sengaja mengarah ke `CamerasTab { screen: 'CameraDetail' }`, dan tiap tab punya instance `HomeStack` sendiri yang statenya tidak di-reset saat pindah tab. Setelah user membuka satu detail kamera, stack tab Kamera menjadi `[Cameras, CameraDetail]` — sehingga "Lihat semua" berikutnya mendarat di `CameraDetail`. |
+| Fix | Helper navigasi Dashboard (`useTabNavigation`) kini menyebut layar tujuan secara eksplisit: `openRoot('Cameras')` → `navigate('CamerasTab', { screen: 'Cameras' })`, demikian juga `openRoot('Alerts')` untuk lonceng dan "Semua alert". `navigate` sengaja dipilih (bukan `push`/`reset`): kalau `Cameras` sudah ada di stack, React Navigation kembali ke layar itu dan membuang layar di atasnya — daftar selalu jadi hasil akhir, tanpa menumpuk. `openDetail` tetap mengarah ke `CameraDetail` di dalam tab Kamera untuk kartu kamera. |
+| Verifikasi | ✅ Terverifikasi via test — `DashboardNavigation.test.tsx` diperluas jadi 5 test (3 baru): "Lihat semua" harus memanggil `navigate('CamerasTab', { screen: 'Cameras' })`, lonceng + "Semua alert" → `AlertsTab { screen: 'Alerts' }`, kartu kamera → `CameraDetail` di tab Kamera. `npx tsc --noEmit` bersih (1 error pre-existing `AuthContext`), eslint 0 error baru, suite tetap 9/10 (1 gagal pre-existing `SubscriptionScreen`). Belum dilihat langsung di device. |
+| Pelajaran | **`navigate(Tab)` tanpa layar = "kembali ke keadaan terakhir tab itu".** Begitu ada alur lain yang menambah layar di stack tab (mis. kartu kamera → detail), tombol tingkat tab akan mendarat di layar sisa itu, bukan layar utamanya. Tombol yang maksudnya "buka daftar" harus menyebut layar akarnya secara eksplisit. |
+| Log Keyword | lihat semua buka detail, navigate CamerasTab buka kamera detail, tab state sisa, daftar kamera tidak muncul, tombol lihat semua salah halaman |
+| Deploy | Belum — perubahan JS-only, ikut bundle berikutnya. |
+
 ### Fix #7 — Halaman push tanpa header, dan halaman tab ikut di-push
 
 | | |

@@ -6,46 +6,25 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 
-const activeSub = {
-  id: 's1',
-  customer_id: 'c1',
-  plan_id: 'p1',
-  plan_name: 'Rumah',
-  plan_price: 50000,
-  status: 'active' as const,
-  starts_at: '2026-09-01T00:00:00Z',
-  ends_at: '2026-10-01T00:00:00Z',
-  created_at: '2026-09-01T00:00:00Z',
-  days_left: 14,
-};
-
-const plans = [
-  {
-    id: 'p1',
-    name: 'Rumah',
-    price: 50000,
-    cameras: 4,
-    storage_days: 7,
-    description: 'Untuk rumah tinggal.',
-  },
-  {
-    id: 'p2',
-    name: 'Bisnis',
-    price: 150000,
-    cameras: 16,
-    storage_days: 30,
-    description: 'Untuk beberapa lokasi.',
-  },
-];
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  const ReactModule = require('react');
+  return {
+    ...actual,
+    useFocusEffect: (effect: () => void) =>
+      ReactModule.useEffect(() => effect(), [effect]),
+  };
+});
 
 jest.mock('../src/api', () => ({
   subscriptionsApi: {
-    list: jest.fn(async () => ({
-      data: { subscriptions: [activeSub], active: activeSub },
-      meta: {},
+    current: jest.fn(async () => ({
+      plan_name: 'Rumah',
+      plan_price: 50000,
+      status: 'active',
+      starts_at: '2026-09-01T00:00:00Z',
+      ends_at: '2026-10-01T00:00:00Z',
     })),
-    plans: jest.fn(async () => ({ data: plans, meta: {} })),
-    subscribe: jest.fn(),
   },
   meApi: { get: jest.fn(), update: jest.fn() },
   authApi: { changePassword: jest.fn() },
@@ -81,7 +60,11 @@ import ProfileScreen from '../src/screens/home/ProfileScreen';
 const navigation = { navigate: jest.fn(), goBack: jest.fn() } as never;
 
 const textOf = (tree: ReactTestRenderer.ReactTestRenderer) =>
-  JSON.stringify(tree.toJSON());
+  tree.root.findAllByType(require('react-native').Text)
+    .map(node => node.props.children)
+    .flat(Infinity)
+    .filter(child => typeof child === 'string')
+    .join(' ');
 
 async function render(element: React.ReactElement) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
@@ -91,19 +74,20 @@ async function render(element: React.ReactElement) {
   return tree;
 }
 
-test('SubscriptionScreen memuat paket, sisa hari, dan riwayat tagihan', async () => {
+test('SubscriptionScreen menampilkan langganan aktif dan katalog yang jujur', async () => {
   const tree = await render(
     <SubscriptionScreen navigation={navigation} route={{} as never} />,
   );
   const text = textOf(tree);
 
   expect(text).toContain('Langganan');
+  expect(text).toContain('Pilihan Paket');
+  expect(text).toContain('Pembelian paket belum tersedia dari aplikasi.');
+  expect(text).toContain('Segera hadir');
   expect(text).toContain('Rumah');
-  expect(text).toContain('Bisnis');
-  expect(text).toContain('Sisa 14 hari');
-  expect(text).toContain('Riwayat tagihan');
-  // Satu paket unggulan, sisanya baris ringkas
-  expect(text).toContain('16 kamera');
+  expect(text).toContain('Sisa');
+  expect(text).not.toContain('Pembayaran Berhasil');
+  expect(text).not.toContain('Scan QRIS');
 });
 
 test('ProfileScreen punya menu Tentang Aplikasi dan bukan Alert', async () => {

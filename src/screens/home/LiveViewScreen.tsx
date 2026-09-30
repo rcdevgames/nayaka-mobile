@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,7 +13,7 @@ import { liveViewStyles as styles } from '../../theme/styles';
 import { Icon, type IconName } from '../../components/Icon';
 import { MjpegView } from '../../components/MjpegView';
 import { useData } from '../../context/DataContext';
-import { camerasApi, snapshotsApi, getAuthToken } from '../../api';
+import { camerasApi, snapshotsApi } from '../../api';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../../navigation/types';
 
@@ -24,8 +25,9 @@ export default function LiveViewScreen({ navigation, route }: Props) {
   const camera = cameras.find(c => c.id === route.params.cameraId);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  // Stream key untuk force-remount MjpegView — setiap masuk halaman stream di-restart
+  // Stream key untuk force-remount MjpegView â€” setiap masuk halaman stream di-restart
   const [streamKey, setStreamKey] = useState(0);
 
   // Force-remount stream setiap kali halaman di-focus (masuk/keluar lalu masuk lagi)
@@ -101,7 +103,7 @@ export default function LiveViewScreen({ navigation, route }: Props) {
         {online ? (
           streamUrl ? (
             <View style={styles.streamCenter}>
-              <MjpegView key={`stream-${streamKey}`} url={streamUrl} accessToken={getAuthToken() ?? undefined} />
+              <MjpegView key={`stream-${streamKey}`} url={streamUrl} />
             </View>
           ) : (
             <View style={styles.streamCenter}>
@@ -129,7 +131,7 @@ export default function LiveViewScreen({ navigation, route }: Props) {
         )}
 
         <View style={styles.streamFooter}>
-          <Text style={styles.footerText}>LIVE · {new Date().toLocaleTimeString('id-ID')}</Text>
+          <Text style={styles.footerText}>LIVE Â· {new Date().toLocaleTimeString('id-ID')}</Text>
         </View>
       </View>
 
@@ -147,7 +149,7 @@ export default function LiveViewScreen({ navigation, route }: Props) {
                   const snapshot = await snapshotsApi.create(camera.id);
                   Alert.alert(
                     'Snapshot disimpan',
-                    `${camera.name} · ${snapshot.resolution}`,
+                    `${camera.name} Â· ${snapshot.resolution}`,
                   );
                 } catch (e) {
                   Alert.alert(
@@ -201,21 +203,28 @@ export default function LiveViewScreen({ navigation, route }: Props) {
                 {recording ? 'Stop' : 'Rekam'}
               </Text>
             </TouchableOpacity>
-            <ControlBtn
-              icon="fullscreen"
-              label="Layar"
-              onPress={() =>
-                Alert.alert('Info', 'Fullscreen belum tersedia (dummy).')
-              }
-            />
           </>
         ) : (
           <TouchableOpacity
             style={styles.retryBtn}
-            onPress={() => Alert.alert('Info', 'Mencoba koneksi ulang (dummy).')}
+            disabled={retrying}
+            onPress={async () => {
+              if (retrying) return;
+              setRetrying(true);
+              try {
+                await refresh();
+                setStreamKey(k => k + 1);
+              } finally {
+                setRetrying(false);
+              }
+            }}
           >
-            <Icon name="refresh" size={18} color={Colors.white} />
-            <Text style={styles.retryText}>Coba Lagi</Text>
+            {retrying ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <Icon name="refresh" size={18} color={Colors.white} />
+            )}
+            <Text style={styles.retryText}>{retrying ? 'Memuat...' : 'Coba Lagi'}</Text>
           </TouchableOpacity>
         )}
       </View>

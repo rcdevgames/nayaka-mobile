@@ -115,6 +115,13 @@ export default function DashboardScreen({ navigation }: Props) {
   const displayActive = activeCameras || cameras.filter(c => c.status === 'online').length;
   const displayRecording = recordingCount || cameras.filter(c => c.is_recording).length;
   const displayAlerts = alertUnread || unreadCount;
+  const systemStatus = cameras.length === 0
+    ? 'offline'
+    : cameras.every(c => c.status === 'offline')
+      ? 'offline'
+      : cameras.some(c => c.status === 'recording' || c.is_recording)
+        ? 'recording'
+        : 'online';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -227,7 +234,7 @@ export default function DashboardScreen({ navigation }: Props) {
                 {displayActive} dari {displayTotal} kamera online
               </Text>
             </View>
-            <StatusBadge status="online" />
+            <StatusBadge status={systemStatus} />
           </View>
 
           <View style={styles.divider} />

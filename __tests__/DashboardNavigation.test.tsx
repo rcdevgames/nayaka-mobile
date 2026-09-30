@@ -32,8 +32,7 @@ jest.mock('../src/context/AuthContext', () => ({
   }),
 }));
 
-jest.mock('../src/context/DataContext', () => ({
-  useData: () => ({
+const mockUseData = jest.fn(() => ({
     cameras: [
       {
         id: 'cam-1',
@@ -41,6 +40,8 @@ jest.mock('../src/context/DataContext', () => ({
         location: 'Teras',
         status: 'online',
         is_recording: false,
+        resolution: '1080p',
+        ip: '192.168.1.20',
         stream_url: 'http://example.test/stream',
       },
     ],
@@ -57,7 +58,10 @@ jest.mock('../src/context/DataContext', () => ({
       },
     ],
     unreadCount: 1,
-  }),
+}));
+
+jest.mock('../src/context/DataContext', () => ({
+  useData: () => mockUseData(),
 }));
 
 jest.mock('../src/api', () => ({
@@ -104,4 +108,76 @@ test('kartu kamera tidak di-push dari stack Dashboard', () => {
   renderDashboard();
 
   expect(navigate).not.toHaveBeenCalledWith('CameraDetail', expect.anything());
+});
+
+test('tombol "Lihat semua" membuka daftar kamera, bukan detail terakhir', () => {
+  const tree = renderDashboard();
+
+  ReactTestRenderer.act(() => {
+    tree.root.findByProps({ action: 'Lihat semua' }).props.onPress();
+  });
+
+  expect(mockTabNavigate).toHaveBeenCalledWith('CamerasTab', {
+    screen: 'Cameras',
+  });
+});
+
+test('status sistem mencerminkan status kamera', async () => {
+  mockUseData.mockReturnValueOnce({
+    cameras: [
+      { id: 'cam-1', name: 'Kamera Teras', location: 'Teras', status: 'offline', is_recording: false, resolution: '1080p', ip: '192.168.1.20', stream_url: '' },
+    ],
+    alerts: [],
+    unreadCount: 0,
+  });
+  const tree = renderDashboard();
+  await ReactTestRenderer.act(async () => {
+    await Promise.resolve();
+  });
+
+  expect(tree.root.findAllByProps({ status: 'offline' }).length).toBeGreaterThanOrEqual(1);
+});
+
+test('tombol "Semua alert" dan lonceng membuka daftar alert', () => {
+  const tree = renderDashboard();
+
+  ReactTestRenderer.act(() => {
+    tree.root.findByProps({ action: 'Semua alert' }).props.onPress();
+  });
+  expect(mockTabNavigate).toHaveBeenCalledWith('AlertsTab', {
+    screen: 'Alerts',
+  });
+
+  mockTabNavigate.mockClear();
+
+  ReactTestRenderer.act(() => {
+    // Ikon lonceng ada di dalam TouchableOpacity tombol notifikasi —
+    // naik ke leluhur terdekat yang punya onPress.
+    let node = tree.root.findByProps({ name: 'notifications-none' });
+    while (node && typeof node.props.onPress !== 'function') {
+      node = node.parent as ReactTestRenderer.ReactTestInstance;
+    }
+    if (!node) throw new Error('tombol notifikasi tidak ditemukan');
+    node.props.onPress();
+  });
+  expect(mockTabNavigate).toHaveBeenCalledWith('AlertsTab', {
+    screen: 'Alerts',
+  });
+});
+
+test('kartu kamera tetap membuka CameraDetail di dalam tab Kamera', () => {
+  const tree = renderDashboard();
+
+  ReactTestRenderer.act(() => {
+    const card = tree.root.findAll(
+      node => node.props?.camera?.id === 'cam-1',
+    )[0];
+    if (!card) throw new Error('kartu kamera tidak ditemukan');
+    card.props.onPress();
+  });
+
+  expect(mockTabNavigate).toHaveBeenCalledWith('CamerasTab', {
+    screen: 'CameraDetail',
+    params: { cameraId: 'cam-1' },
+  });
 });
